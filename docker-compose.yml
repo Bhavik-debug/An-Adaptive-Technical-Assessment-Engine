@@ -1,0 +1,99 @@
+# Local development stack. `docker compose up` from a clean clone must give a
+# working API — that is the Phase 1 exit gate.
+# Production compose + Caddyfile land in infra/ during Phase 6.
+
+name: adaptive-ai-interviewer
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-interviewer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-interviewer}
+      POSTGRES_DB: ${POSTGRES_DB:-interviewer}
+    ports:
+      # Host ports are offset so a locally installed Postgres/Redis does not clash.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-interviewer} -d ${POSTGRES_DB:-interviewer}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Runs `alembic upgrade head`, then exits. The API waits for it to finish
+  # successfully, so the API can never serve traffic against an un-migrated
+  # database. This is the "init container" pattern from plan section 14.3.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-interviewer}:${POSTGRES_PASSWORD:-interviewer}@postgres:5432/${POSTGRES_DB:-interviewer}
+      REDIS_URL: redis://redis:6379/0
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Override whatever .env says about hosts: inside the compose network the
+      # dependencies are reachable by service name.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-interviewer}:${POSTGRES_PASSWORD:-interviewer}@postgres:5432/${POSTGRES_DB:-interviewer}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      # Host port is overridable: set API_HOST_PORT in .env if 8000 is taken.
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      # Dev convenience: edit backend/app on the host, uvicorn reloads.
+      - ./backend/app:/app/app:ro
+    command:
+      ["uvicorn", "app.main:create_app", "--factory",
+       "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
