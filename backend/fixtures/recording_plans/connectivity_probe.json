@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "description": "The Phase-1 exit-gate call, expressed as a recording plan. Already recorded, so running this plan skips it and spends nothing - which is the idempotency guarantee, demonstrated.",
+  "requests": [
+    {
+      "name": "connectivity_probe",
+      "task": "connectivity_probe",
+      "schema": "ProbeAnswer",
+      "inputs": {
+        "token": "replay01"
+      },
+      "note": "the Day-5 offline replay of the Phase-1 exit-gate call."
+    }
+  ]
+}

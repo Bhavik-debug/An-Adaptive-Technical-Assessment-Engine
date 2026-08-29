@@ -230,10 +230,16 @@ class FixtureStore:
     def __init__(self, directory: Path | None = None) -> None:
         self.directory = Path(directory) if directory is not None else DEFAULT_FIXTURE_DIR
         self._fixtures: dict[str, Fixture] = {}
+        #: Which file each recording came from. Only the recorder needs this -
+        #: replay matches on the key alone - but it is what lets an overwrite
+        #: replace the existing file rather than write a second one under a new
+        #: name, which would leave two files claiming the same ``request_hash``.
+        self._paths: dict[str, Path] = {}
         self.reload()
 
     def reload(self) -> None:
         self._fixtures = {}
+        self._paths = {}
         if not self.directory.is_dir():
             log.info("llm fixture directory %s does not exist; replay is empty", self.directory)
             return
@@ -249,10 +255,15 @@ class FixtureStore:
                 log.warning("duplicate llm fixture key in %s; keeping the first", path.name)
                 continue
             self._fixtures[fixture.key] = fixture
+            self._paths[fixture.key] = path
         log.info("loaded %d llm fixture(s) from %s", len(self._fixtures), self.directory)
 
     def get(self, key: str) -> Fixture | None:
         return self._fixtures.get(key)
+
+    def path_for(self, key: str) -> Path | None:
+        """The file this recording lives in, or ``None`` if it is only in memory."""
+        return self._paths.get(key)
 
     def add(self, fixture: Fixture) -> None:
         """Register a fixture without writing it to disk. For tests."""
@@ -274,4 +285,5 @@ class FixtureStore:
             encoding="utf-8",
         )
         self._fixtures[fixture.key] = fixture
+        self._paths[fixture.key] = path
         return path

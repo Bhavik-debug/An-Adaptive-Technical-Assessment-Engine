@@ -495,3 +495,63 @@ contains no prompt, no answer and no model output.
 retrieval work does not need the LLM, but Phase 4's grading evals will need many
 — and §12.3 wants them keyed the way this store already keys them. The step to
 plan for is a *bulk* recorder, not a per-call one.
+
+### Day 6 — the bulk fixture recorder
+
+Day 5 closed with an open item: one recording in the fixture directory, and a
+per-call recorder that would not scale to Phase 4's grading evals. Day 6 is that
+bulk path, and the whole design constraint was *do not build a second system*.
+
+**`app/llm/recording.py`** — the engine. A JSON **recording plan** (`name`,
+`task`, `schema`, `inputs`, optional `note`/`temperature`) is validated, then
+each entry goes through the production `call_structured()` → `ProviderRouter` →
+real provider, and the answer is filed by the existing `fixture_key()` into the
+existing `FixtureStore`, in the existing format. Nothing here knows how to answer
+a request; a recorder with its own idea of an LLM call would be recording its own
+behaviour rather than the system's. `scripts/record_llm_fixtures.py` is the
+command line over it, and Day 5's `record_llm_fixture.py` was rewritten to
+delegate to the same engine — one implementation, two front doors.
+
+**The key is computed before the call, not after.** A probe provider is pushed
+through the real chokepoint, captures the assembled `CompletionRequest` and
+stops without answering. So "is this already recorded?" is answered for free, and
+re-running a plan costs nothing. **An existing recording is skipped, never
+silently overwritten**; `--overwrite` replaces it, into the same file rather than
+a second one claiming the same `request_hash`.
+
+**A recording is a real answer or it is nothing.** `stub_replay`,
+`stub_synthesized` and `cache` are all refused rather than written, and the
+*provider* decides that label — a plan file cannot claim it. Plan entries are
+validated against fixed tables (`TaskName`, `recording.SCHEMAS`) and rejected for
+any key outside the allowed list, so a plan can never supply `text`,
+`input_tokens`, `recorded_structured_mode` or `request_hash`. A stub-only
+`LLM_PROVIDER_ORDER` is refused before anything runs.
+
+**On failure the batch continues** and exits 1. Recording is the one expensive
+operation in this repository; stopping at the first failure would discard the
+recordings that already succeeded and make you pay for them again. Every failure
+is reported with its entry name and its reason, passed through the same redactor
+the log formatter uses, seeded with this process's real secrets.
+
+**One real bug found, and it was Day 5's.** The old recorder filed a fixture
+under the key of the *last* request it saw. Those are the same request unless the
+model's first answer failed schema validation — in which case the last request
+carries the repair messages, and the recording would be filed under a key no
+replay could ever ask for: a fixture that silently is not there. The recorder now
+files the **last answer under the first request's key**, which is the one a replay
+starts from. A round-trip test covers it: record with a repair, then replay and
+get the validated answer back on attempt 0.
+
+Two smaller fixes: `FixtureStore` now remembers which file each recording came
+from, so an overwrite edits it rather than creating a duplicate key; and the key
+probe raises a private control-flow exception rather than a `ProviderError`, so a
+hundred-entry plan does not emit two hundred misleading "provider failed"
+warnings or churn the circuit breaker.
+
+470 tests pass (56 new), ruff, `ruff format --check` and `mypy --strict` clean,
+gitleaks clean. Verified by hand end to end: two probe recordings made in one
+invocation against real Nemotron into a temp directory, re-run skipped both
+without spending quota, and both replayed offline through the stub as
+`stub_replay` with their recorded token counts. The repository's own plan
+(`fixtures/recording_plans/connectivity_probe.json`) resolves to the exact
+`request_hash` the Day-5 fixture is already filed under — a test asserts it.

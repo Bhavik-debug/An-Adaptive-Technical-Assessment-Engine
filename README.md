@@ -383,31 +383,65 @@ the log line for **every** call. A grading eval that quietly ran on synthesized
 labels is one query away from being spotted. `LLM_STUB_ON_MISSING` defaults to
 `strict`, which *raises* rather than inventing anything.
 
-### Recording a fixture
+### Recording fixtures
 
 ```bash
 cd backend
+# many at a time, from a recording plan (Day 6)
+python scripts/record_llm_fixtures.py fixtures/recording_plans/connectivity_probe.json --dry-run
+python scripts/record_llm_fixtures.py fixtures/recording_plans/connectivity_probe.json
+
+# one named recipe at a time (Day 5)
 python scripts/record_llm_fixture.py probe --dry-run   # print the key, write nothing
 python scripts/record_llm_fixture.py probe             # make the call, write the file
 ```
 
-The only thing in the repository that deliberately spends quota. Run by hand,
-never by a test, never by CI. A fixture is keyed by a SHA-256 of the assembled
-provider request, so **a changed prompt is a different key** — a stale recording
-becomes a clean miss instead of a silently wrong answer.
+The only things in the repository that deliberately spend quota. Run by hand,
+never by a test, never by CI. Both are front doors onto one engine
+(`app/llm/recording.py`) that calls the real `call_structured()` — so what gets
+recorded is exactly what production sends, and neither tool has its own idea of
+what an LLM call looks like.
+
+A fixture is keyed by a SHA-256 of the assembled provider request, so **a changed
+prompt is a different key** — a stale recording becomes a clean miss instead of a
+silently wrong answer. That same key is computed *before* the call, which is what
+makes re-running a plan free: **an existing recording is skipped, never silently
+overwritten**; `--overwrite` replaces it deliberately. One failed entry is
+reported (with any credential redacted) and the batch carries on, because
+recording is the expensive operation and a failure should not cost the entries
+that already succeeded.
+
+A recording is a real answer or it is nothing: a `stub_replay`, `stub_synthesized`
+or cached response is refused rather than written, and the **provider** decides
+that label — a plan file cannot claim it. Recording needs
+`LLM_PROVIDER_ORDER=nvidia`; a stub-only order is refused up front. Plan format,
+flags and re-run behaviour: `backend/fixtures/llm/README.md`.
 
 > **Never record a call whose prompt or response contains candidate data.** A
 > fixture is committed to git: permanent, shared, and outside the reach of the
 > log redactor. See `backend/fixtures/llm/README.md`.
 
+### Checking it by hand
+
+```powershell
+# from the REPOSITORY ROOT (that is where .env lives)
+.venv\Scripts\python.exe backend/scripts/show_llm_call.py --stub     # offline, no key
+.venv\Scripts\python.exe backend/scripts/show_llm_call.py --nvidia   # live, spends quota
+```
+
+Prints the validated object *and* the full `CallMeta`, and says in words what
+`structured_mode` means for that call. `docs/manual-verification.md` walks
+through every Phase-1 check the same way.
+
 ### Which tests need what
 
 | Command | Network | API key | What it proves |
 |---|:--:|:--:|---|
-| `pytest` | no | no | Everything below except the live wire. 414 tests. |
+| `pytest` | no | no | Everything below except the live wire. 470 tests. |
 | `pytest tests/unit` | no | no | Logic, offline. Runs anywhere. |
 | `pytest tests/integration` | localhost | no | Real Postgres + Redis; migrations really apply. Skips if the stack is down. |
 | `pytest tests/unit/llm/test_offline_replay.py` | **blocked** | no | A real recorded Nemotron answer replays end to end. A fixture actively makes any non-loopback socket raise. |
+| `pytest tests/unit/llm/test_bulk_recording.py` | no | no | The bulk recorder: plan validation, fixture keys, idempotency, failure handling, provenance — and a record→replay round trip. |
 | `pytest -m smoke tests/smoke` | **yes** | **yes** | Is the wire actually connected? Opt-in; deselected by default. |
 
 ---
@@ -466,8 +500,10 @@ backend/app/          FastAPI modular monolith
     pricing.py        token prices and per-call cost
     client.py         call_structured() and CallMeta
     runtime.py        process lifecycle, wired into the FastAPI lifespan
+    recording.py      the bulk fixture recorder (Day 6): plan -> chokepoint -> fixture
 backend/fixtures/llm/ recorded model responses the stub replays
-backend/scripts/      record_llm_fixture.py — the only thing that spends quota
+backend/fixtures/recording_plans/  what to record, as JSON — input, never output
+backend/scripts/      record_llm_fixture{,s}.py — the only things that spend quota
 backend/migrations/   Alembic environment and versions
 backend/tests/        pytest (unit = offline, integration = real PG+Redis,
                       smoke = opt-in, hits a real provider)

@@ -44,10 +44,14 @@ _(items discovered mid-build that are out of scope go here rather than into the 
 
 **Day 5 — deferred deliberately.**
 
-- **A bulk fixture recorder.** `scripts/record_llm_fixture.py` records one named
+- **A bulk fixture recorder.** ~~`scripts/record_llm_fixture.py` records one named
   call at a time, which is right for Phase 1's single probe. Phase 4's grading
-  evals will need dozens, keyed the way plan §12.3 describes. Build the bulk
-  path when there is a dataset to record against, not before.
+  evals will need dozens, keyed the way plan §12.3 describes.~~ **Delivered on
+  Day 6**: `app/llm/recording.py` + `scripts/record_llm_fixtures.py` take a JSON
+  recording plan and record every entry through the same `call_structured()`
+  path, under the same `fixture_key()`, into the same `FixtureStore`. The
+  single-recipe script is now a front door onto the same engine. Phase 4 adds its
+  schemas to `recording.SCHEMAS` and its dataset as a plan file; no new machinery.
 - **A SQLite fixture store.** §12.3 suggests SQLite; this uses one JSON file per
   recording. JSON is reviewable in a pull request and diffs legibly, which
   matters more at one fixture than lookup speed does. Revisit if the directory
