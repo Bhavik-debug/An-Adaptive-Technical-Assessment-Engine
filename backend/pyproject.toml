@@ -15,6 +15,18 @@ dependencies = [
     "argon2-cffi>=23.1,<24.0",
     "pyjwt>=2.10,<3.0",
     "email-validator>=2.2,<3.0",
+    # OpenAI-compatible client. Used to talk to NVIDIA, not to OpenAI:
+    # the SDK is a transport for a wire format several vendors implement.
+    "openai>=1.60,<2.0",
+    # Observability (Day 4). The API and SDK are the instrumentation; the OTLP
+    # exporter is how spans reach a collector or a self-hosted Langfuse.
+    # `opentelemetry-instrumentation-*` packages are versioned separately from
+    # the core (0.65b0 pairs with 1.44.x) and are published as pre-releases,
+    # which is upstream's own convention rather than an instability signal.
+    "opentelemetry-api>=1.44,<1.45",
+    "opentelemetry-sdk>=1.44,<1.45",
+    "opentelemetry-exporter-otlp-proto-http>=1.44,<1.45",
+    "opentelemetry-instrumentation-fastapi>=0.65b0,<0.66",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +37,8 @@ dev = [
     "asgi-lifespan>=2.1,<3.0",
     "ruff>=0.7,<0.9",
     "mypy>=1.13,<2.0",
+    # Reads .github/workflows/ci.yml so the CI gates can be asserted on.
+    "pyyaml>=6.0,<7.0",
 ]
 
 [build-system]
@@ -37,7 +51,12 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+# `-m "not smoke"`: the default suite is deterministic and offline. The live
+# NVIDIA smoke test is opted into explicitly with `pytest -m smoke tests/smoke`.
+addopts = "-q -m 'not smoke'"
+markers = [
+    "smoke: hits a real LLM provider; needs NVIDIA_API_KEY; excluded by default",
+]
 
 [tool.ruff]
 line-length = 100

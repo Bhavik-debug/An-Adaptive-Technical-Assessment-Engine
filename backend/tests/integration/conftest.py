@@ -15,6 +15,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import NoReturn
 
 import asyncpg
 import pytest
@@ -28,6 +29,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+# Set by CI, where Postgres and Redis are guaranteed to be up. It converts
+# "the stack is down, skip" into "the stack is down, fail". Without it a broken
+# service container would show as a green run that quietly executed 37 fewer
+# tests, and "CI is green on a PR" would stop meaning anything.
+REQUIRE_INTEGRATION = os.getenv("REQUIRE_INTEGRATION", "").lower() in {"1", "true", "yes"}
+
+
+def _unavailable(reason: str) -> NoReturn:
+    if REQUIRE_INTEGRATION:
+        pytest.fail(f"REQUIRE_INTEGRATION is set but {reason}")
+    pytest.skip(reason)
+
 
 # Host ports from docker-compose.yml. Overridable so CI can point elsewhere.
 ADMIN_DSN = os.getenv(
@@ -99,7 +113,7 @@ def migrated_database_url() -> Iterator[str]:
     try:
         asyncio.run(_recreate_database())
     except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
-        pytest.skip(
+        _unavailable(
             f"Postgres not reachable at {ADMIN_DSN} ({type(exc).__name__}); "
             "run `docker compose up -d` to enable integration tests"
         )
@@ -125,7 +139,7 @@ def redis_url() -> str:
     try:
         asyncio.run(_ping())
     except Exception as exc:  # noqa: BLE001 - any failure means "not available"
-        pytest.skip(f"Redis not reachable at {TEST_REDIS_URL} ({type(exc).__name__})")
+        _unavailable(f"Redis not reachable at {TEST_REDIS_URL} ({type(exc).__name__})")
     return TEST_REDIS_URL
 
 

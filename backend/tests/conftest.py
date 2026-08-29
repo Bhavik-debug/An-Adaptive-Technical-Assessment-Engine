@@ -11,7 +11,14 @@ from collections.abc import Iterator
 
 import pytest
 
-from app.config import Settings, get_settings
+from app.config import (
+    DatabaseSettings,
+    LoggingSettings,
+    Settings,
+    get_database_settings,
+    get_logging_settings,
+    get_settings,
+)
 
 # Everything Settings reads, so a test can start from a known-empty environment.
 SETTINGS_ENV_KEYS = tuple(name.upper() for name in Settings.model_fields)
@@ -23,6 +30,9 @@ VALID_ENV: dict[str, str] = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/testdb",
     "REDIS_URL": "redis://localhost:6379/0",
     "SECRET_KEY": "x" * 48,
+    # Config refuses to boot with "nvidia" in the routing order and no key.
+    # Not a credential: no unit test reaches the network.
+    "NVIDIA_API_KEY": "unit-test-placeholder",
 }
 
 
@@ -30,14 +40,20 @@ VALID_ENV: dict[str, str] = {
 def _reset_settings_cache() -> Iterator[None]:
     """Settings are process-cached; drop the cache around every test."""
     get_settings.cache_clear()
+    get_database_settings.cache_clear()
+    get_logging_settings.cache_clear()
     yield
     get_settings.cache_clear()
+    get_database_settings.cache_clear()
+    get_logging_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
 def _ignore_developer_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
     """A developer's .env must never leak into a test's expectations."""
     monkeypatch.setitem(Settings.model_config, "env_file", None)
+    monkeypatch.setitem(DatabaseSettings.model_config, "env_file", None)
+    monkeypatch.setitem(LoggingSettings.model_config, "env_file", None)
 
 
 @pytest.fixture

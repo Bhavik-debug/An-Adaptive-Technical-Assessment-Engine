@@ -28,7 +28,7 @@ NAMING_CONVENTION = {
 class Base(DeclarativeBase):
     metadata = sa.MetaData(naming_convention=NAMING_CONVENTION)
 
-#Give me a database column that stores a timezone-aware timestamp, automatically gets the current time from PostgreSQL when a row is created, and cannot be empty. Also allow me to provide extra column options.
+
 def utc_now_column(**kwargs: object) -> sa.orm.Mapped[dt.datetime]:
     """A timestamptz column defaulted by the database clock, not the app clock.
 

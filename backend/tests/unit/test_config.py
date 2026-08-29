@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config import ConfigError, get_settings
+from app.config import ConfigError, get_database_settings, get_settings
 
 
 def test_valid_environment_loads(env):
@@ -63,3 +63,28 @@ def test_unknown_app_env_is_rejected(env):
     env({"APP_ENV": "banana"})
     with pytest.raises(ConfigError, match="APP_ENV"):
         get_settings()
+
+
+def test_migrations_need_only_a_database_url(env):
+    """A schema migration must not depend on an LLM credential.
+
+    Otherwise the Phase 6 restore drill - and every `alembic upgrade head` -
+    requires a provider account to be in good standing, which is coupling with
+    a real operational cost.
+    """
+    env({"NVIDIA_API_KEY": None, "REDIS_URL": None, "SECRET_KEY": None})
+
+    settings = get_database_settings()
+
+    assert settings.database_url.startswith("postgresql+asyncpg://")
+    # The full application settings still refuse, in the same environment.
+    with pytest.raises(ConfigError):
+        get_settings()
+
+
+def test_database_settings_apply_the_same_dsn_rule(env):
+    env({"DATABASE_URL": "postgresql://u:p@localhost:5432/db"})
+    with pytest.raises(ConfigError) as exc:
+        get_database_settings()
+    assert "DATABASE_URL" in str(exc.value)
+    assert "migration runner" in str(exc.value)

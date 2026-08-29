@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
@@ -60,13 +61,32 @@ async def test_readyz_is_ready_when_dependencies_answer(client, monkeypatch):
     assert body["checks"]["redis"]["status"] == "ok"
 
 
-async def test_readyz_reports_the_llm_router_as_not_yet_wired(client, monkeypatch):
+async def test_readyz_reports_the_llm_router_once_the_app_has_started(app, monkeypatch):
+    """Day 3 wired the router into the lifespan, so readiness now covers it.
+
+    The router is built at startup, which is why this test runs the lifespan
+    rather than only the request path. Building it makes no network call, so
+    this stays an offline unit test.
+    """
+    monkeypatch.setattr("app.api.health.check_database", _ok())
+    monkeypatch.setattr("app.api.health.check_redis", _ok())
+
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as started:
+            body = (await started.get("/readyz")).json()
+
+    assert body["checks"]["llm_providers"]["status"] == "ok"
+    assert "nvidia" in body["checks"]["llm_providers"]["detail"]
+
+
+async def test_readyz_reports_llm_as_skipped_in_a_process_that_never_started(client, monkeypatch):
+    """Honest reporting: a router that was never built is never "ok"."""
     monkeypatch.setattr("app.api.health.check_database", _ok())
     monkeypatch.setattr("app.api.health.check_redis", _ok())
 
     body = (await client.get("/readyz")).json()
 
-    # Honest reporting: a dependency that does not exist yet is never "ok".
     assert body["checks"]["llm_providers"]["status"] == "skipped"
 
 

@@ -9,22 +9,29 @@ Days 1–29 are developed and verified entirely locally.
 
 ---
 
-## Phase 1 — Days 1–5 — Foundations & the LLM chokepoint  ⏳ in progress
+## Phase 1 — Days 1–5 — Foundations & the LLM chokepoint  ✅ COMPLETE
 
 | Day | Build | Status |
 |:--:|---|:--:|
 | 1 | Repo, docker-compose (api + postgres/pgvector + redis), FastAPI skeleton, fail-fast config, `/healthz` + `/readyz` | ✅ |
 | 2 | Alembic migrations; core tables; auth (argon2, JWT access + rotating refresh cookie) | ✅ |
-| 3 | `call_structured()` — provider router, schema validation + retry, cache, cost accounting | ⬜ |
-| 4 | OpenTelemetry + Langfuse; GitHub Actions CI (lint → mypy → pytest) | ⬜ |
-| 5 | Offline replay mode (stub provider); router unit tests (429 failover, schema retry, cache, cost) | ⬜ |
+| 3 | `call_structured()` — provider router, schema validation + retry, cache, cost accounting | ✅ |
+| 4 | OpenTelemetry + Langfuse; GitHub Actions CI (lint → mypy → pytest) | ✅ |
+| 5 | Offline replay mode (stub provider); router unit tests (429 failover, schema retry, cache, cost) | ✅ |
 
 **Exit gate**
-- [ ] `docker compose up` from a clean clone gives a working API
+- [x] `docker compose up` from a clean clone gives a working API
 - [x] Register → login → authenticated `GET /me` works
-- [ ] One LLM call succeeds through `call_structured()` and appears in tracing with cost attached
-- [ ] Killing the primary provider (bad API key) causes automatic failover, proven by a test
-- [ ] CI is green on a PR
+- [x] One LLM call succeeds through `call_structured()` and appears in tracing with cost attached
+      *(verified live against NVIDIA on Day 3. Day 4 replaced the JSON-log-only cut-line with
+      real OpenTelemetry spans carrying the identical attribute set, plus a Langfuse exporter.)*
+- [x] Killing the primary provider (bad API key) causes automatic failover, proven by a test
+- [~] CI is green on a PR
+      *(the pipeline exists, and every gate it runs — ruff, ruff format, mypy --strict,
+      pytest against real Postgres + Redis — was run locally and is green. It cannot have
+      run **on GitHub** yet: nothing is pushed before Day 30, which is this project's own
+      deployment rule. `tests/unit/test_ci_workflow.py` asserts the workflow's shape.
+      This is the one Phase-1 gate that closes on the first push rather than today.)*
 
 ---
 
@@ -123,3 +130,368 @@ serves both its sync and async APIs, which needs explicit casts under mypy --str
 correct for a same-origin deployment. If the frontend ends up on Cloudflare Pages
 with the API on a different origin, the browser will not send the cookie at all and
 this becomes `SameSite=None; Secure`. Decide when the deploy topology is fixed.
+
+### Day 3 — the LLM chokepoint
+**One door.** `app/llm/` — `call_structured(task, inputs, Schema) -> (Schema, CallMeta)`.
+Nothing outside that package may call a provider API, so prompt versioning, model
+routing, retry-on-invalid-output, caching, cost accounting and failover exist once
+rather than thirty times.
+
+**Provider.** NVIDIA `nvidia/nemotron-3.5-lightning-30b-a3b` over the
+OpenAI-compatible endpoint at `integrate.api.nvidia.com/v1`, driven by the OpenAI
+Python SDK as a transport. All of that lives in `app/llm/providers/nvidia.py` and
+nowhere else; the router above it sees only a `CompletionResult`.
+
+**Four deliberate departures from NVIDIA's reference snippet**, each with a reason:
+`stream=False` (a partial JSON object cannot be validated, and the SSE at the API
+boundary carries state transitions, not tokens); temperature/top_p from the task
+routing table rather than the snippet's chat-demo defaults; thinking off unless a
+task asks for it; and structured output *negotiated* — strict `json_schema` first,
+stepping down to `json_object` then prompt-only if the endpoint rejects the
+parameter, remembering which rung worked. Correctness never depends on the rung:
+pydantic validation is the guarantee, provider enforcement is the optimisation.
+
+**Reasoning.** Separated from the answer inside the adapter — from the dedicated
+`reasoning_content` field, or from inline `<think>` tags in any of the three shapes
+that occur (paired, pre-filled open tag, never closed). Only the token count travels
+onward; the text reaches neither the caller, the metadata, nor the logs. A model that
+spends its whole budget thinking produces an explicit error rather than an empty
+answer. Off for every Day-3 task: schema-constrained extraction at temperature 0 gains
+nothing from it and pays for it in latency and output tokens.
+
+**Retry, failover, health.** Two distinct retry loops. Transport: retryable failures
+(429/5xx/timeout) get another attempt with jittered exponential backoff honouring
+`Retry-After`; a 401 or 400 fails over immediately rather than burning attempts.
+Schema: invalid output is re-prompted with the model shown its own output and the
+validation error, up to `LLM_SCHEMA_MAX_RETRIES`. A circuit breaker takes a repeatedly
+failing provider out of rotation for a cooldown, and `/readyz` reports rotation state
+without ever making a model call — a probe polled every few seconds must not spend the
+daily quota.
+
+**Accounting.** `Decimal` cost from a `PRICES` table, tokens summed across *every*
+attempt including repairs, and a `price_known` flag so an unlisted model reads as
+"unknown" rather than "free". Every call emits the plan §14.2 attribute set as a JSON
+log line; Day 4 changes the exporter, not the call sites.
+
+**Security.** `NVIDIA_API_KEY` is a `SecretStr` (renders as `**********` everywhere),
+lives only in the gitignored `.env`, is absent from tests and docs, and a missing key
+is a boot failure with a readable message rather than a 401 mid-interview.
+
+240 tests (all offline), plus one opt-in live smoke test excluded from `pytest` by
+default. ruff, `ruff format --check` and `mypy --strict` clean.
+
+Three things the checks changed. `ruff check .` surfaced a stray leftover note in
+`app/models/base.py` from Day 2 — removed, the docstring below it already said the
+same thing. `int.__pow__` is typed as returning `Any` (a negative exponent yields a
+float), which leaked into the backoff calculation under `--strict`. And the first
+`docker compose up` after wiring config revealed real over-coupling: the Alembic
+migration container now demanded an LLM key. Fixed by splitting `DatabaseSettings`
+out of `Settings` — `Settings` inherits it, so there is still one definition of a
+valid `DATABASE_URL`, but a migration (and the Phase 6 restore drill) validates only
+what it actually uses.
+
+**Open item for Day 4:** the span attributes are emitted as a JSON log line, which is
+the plan's stated Phase 1 cut-line. Wiring OpenTelemetry means swapping `_log_call()`
+in `app/llm/client.py` for a span exporter; the attribute names must not change.
+
+### Day 3 (continued) — live verification against NVIDIA
+
+The chokepoint was built blind on Day 3 morning, defensively, because the endpoint's
+structured-output support could not be confirmed without a key. With the key in the
+local `.env`, it was verified end to end.
+
+**The real call.** `pytest -m smoke tests/smoke -q -s`:
+
+```
+model            nvidia/nemotron-3.5-lightning-30b-a3b
+structured_mode  json_schema        <- the strongest rung, accepted
+tokens           328 in / 23 out
+reasoning_tokens 0                  <- thinking correctly disabled
+schema_retries   0                  <- valid on the first attempt
+cost_usd         0.000000 (price_known=True)
+latency          1265 ms
+```
+
+**The finding worth recording:** `integrate.api.nvidia.com` accepts
+`response_format={"type":"json_schema", ..., "strict":true}` for this model. The
+step-down ladder (`json_schema` → `json_object` → prompt-only) is therefore a safety
+net that costs nothing in the normal case, not a routine expense. It stays: a NIM
+build can change, and the alternative is discovering that in production.
+
+**Failure paths, verified against the live endpoint** (a one-off script, not a
+committed test — the deterministic suite covers these with fakes):
+
+| Case | Result |
+|---|---|
+| Invalid API key | `ProviderAuthError(retryable=False, status=403)`; the key does **not** appear in the message |
+| Dead primary → live secondary, both real adapters | answered by the second provider, `failover_count=1` |
+| 1 ms deadline | `AllProvidersFailedError: nvidia: no response within 0.001s` |
+
+The second row is the Phase 1 exit gate — "killing the primary provider (bad API key)
+causes automatic failover" — now demonstrated against the real endpoint as well as in
+unit tests.
+
+**Secret containment, verified.** A probe run with `DEBUG`-level logging on every
+logger captures 5,615 characters and contains neither the key nor the substring
+`nvapi`.
+
+**Full stack.** `docker compose up -d` → all three services healthy, and:
+
+```
+GET /readyz -> 200
+{"status":"ready","checks":{
+   "postgres":{"status":"ok","latency_ms":40},
+   "redis":{"status":"ok","latency_ms":3},
+   "llm_providers":{"status":"ok","latency_ms":0,"detail":"1/1 in rotation: nvidia"}}}
+```
+
+**Two defects found and fixed during verification.**
+
+1. *The smoke test skipped on a correctly configured machine.* Its `skipif` read
+   `os.environ`, but this project's configuration lives in `.env` — so the test would
+   have silently skipped forever, which is worse than failing. Now it asks the same
+   `Settings` object the API uses, loading `.env` by absolute path. `probe_llm()`
+   gained an explicit `settings` parameter so the test does not have to reach into
+   `get_settings()`' process cache.
+2. *A sub-second timeout was reported as "no response within 0s".* `:.0f` formatting.
+   Now `:g`, with a test for both a sub-second and a whole-second deadline.
+
+### Day 4 — CI and observability
+
+Two deliverables, one theme: knowing whether the system is right, and knowing
+what it did.
+
+**CI** (`.github/workflows/ci.yml`). Three jobs, on every push to `main` and
+every pull request. `static` runs `ruff check` → `ruff format --check` →
+`mypy --strict app`, in that order, cheapest first. `tests` runs `pytest`
+against real Postgres (pgvector) and Redis service containers, on the same host
+ports `docker-compose.yml` uses, so CI and a laptop cannot disagree. `secrets`
+asserts `.env` is untracked and runs `gitleaks detect --redact` over the full
+history (plan §14.3 — a secret committed and later deleted is still leaked).
+
+No provider credential is referenced anywhere in the workflow. `pytest` is
+already configured with `-m "not smoke"`, so the one live test is deselected,
+and the unit suite supplies a placeholder key from a fixture. `--redact` means a
+gitleaks finding cannot turn the CI log into the leak it just found.
+
+`REQUIRE_INTEGRATION=1` in the tests job turns "Postgres unreachable, skip" into
+"Postgres unreachable, fail". Without it a broken service container would show
+as a green run that quietly executed 37 fewer tests, and the exit gate "CI is
+green on a PR" would stop meaning anything.
+
+**Observability** (`app/obs/`, plan §13.1 and §14.2). Three layers.
+
+*Structured logging.* One JSON object per line. `request_id`, `trace_id`,
+`span_id`, `service` and `env` are stamped on by a filter, so a third-party
+library's log line is as correlated as ours. uvicorn's own loggers are adopted —
+otherwise the access log is a second, unredacted path to stdout, and the access
+log prints full URLs, which is exactly where a token pasted into a query string
+would surface.
+
+*Request correlation.* `X-Request-ID`, accepted from the caller or generated,
+returned in the response so a bug report can quote it. Accepted only after
+validation: an inbound header lands in every log line for that request, and one
+containing a separator character is a log-injection bug. Written as raw ASGI
+rather than `BaseHTTPMiddleware`, which runs the rest of the app in a separate
+task and would make the `ContextVar` invisible to the endpoint — defeating the
+entire purpose.
+
+*Tracing.* OpenTelemetry, with the exporter as configuration: `none` (the
+default — spans still exist, so `trace_id` is on every log line, and nothing has
+to be running), `console`, `otlp`, or `langfuse`. Langfuse ingests OTLP
+natively, so it is a *destination* rather than a second SDK in the call path,
+which is what keeps plan §13.10's "OTel keeps you vendor-neutral" true rather
+than decorative.
+
+**How Day 3 connects.** `call_structured()` already computed every number §14.2
+calls non-negotiable. Day 4 adds no accounting: `app/obs/spans.py` is a
+projection of `CallMeta` onto span attributes, and `call_structured` became a
+thin wrapper that opens a span, delegates to the unchanged body, and records the
+outcome. If the two ever disagreed, a cost report and a trace would tell
+different stories about the same call, and neither could be trusted.
+
+**Redaction**, three mechanisms because each catches what the others miss: field
+names (`password`, `authorization`, `cookie`, `*_token`), credential shapes
+(JWT, `nvapi-…`, `Bearer …`, argon2), and this process's *actual* secrets
+registered as literals at boot — the backstop for a secret logged under a name
+nobody predicted. Candidate emails are masked as `[EMAIL]`; §14.1 mandates a
+redaction pass before an LLM sees anything, and a log file is the same exposure
+with a longer retention. Prompts, answers and model reasoning are absent
+structurally: `CallMeta` does not contain them, so there is nothing to leak.
+
+Span exception events are built by hand rather than with OTel's
+`record_exception`, so the message and stack go through the redactor before a
+span leaves the process for a third-party service. The unabridged traceback
+stays in the local log, and both carry the same `trace_id`.
+
+**Five things the work changed or found.**
+
+0. *`LOG_LEVEL=DEBUG` silently enabled full-prompt logging.* Found by running the
+   live smoke test with DEBUG on every logger and grepping the output for the
+   prompt: `openai._base_client` writes the entire request options object,
+   prompt included, at DEBUG. This project's prompts carry resumes and candidate
+   answers, so investigating our own code would have started recording candidate
+   data. `openai`, `httpx`, `httpcore` and `urllib3` are now floored at INFO
+   unconditionally — redaction cannot help, because an answer is not a shape a
+   regex can recognise. Measured live at `LOG_LEVEL=DEBUG`: one call logged
+   10,483 characters including the prompt before the fix, 1,732 characters and
+   no content after it. The API key was contained in both cases.
+
+1. *A pre-existing lint failure in the working tree.* `app/llm/providers/nvidia.py`
+   had been hand-edited after Day 3: a 111-character trailing comment (E501) and
+   an un-normalised comment block. CI would have been red on its very first run.
+   Fixed with `ruff format`; the architecture diagram in that file is intact.
+2. *Cache hits were invisible.* Day 3's cache-hit path returned before
+   `_log_call()`, so a served-from-cache answer produced no record at all — which
+   makes cache hit rate (an operational metric in §12.4) unmeasurable, and hides
+   a cached answer when tracing why a session behaved oddly. A hit is now a
+   first-class traced call that happens to have cost nothing.
+3. *`OTEL_ENABLED=false` did not switch anything off.* `get_tracer()` fell back
+   to the OTel global provider, which this process had already registered, so
+   spans were still created. It now returns a genuine no-op tracer.
+4. *`_log_call` emitted JSON inside a string.* `log.info("llm_call %s",
+   json.dumps(...))` was the Phase 1 cut-line. The attributes are now passed as
+   `extra=`, so they are real fields a log backend can aggregate. The attribute
+   *names* are unchanged, which was the condition the cut-line attached to
+   swapping the exporter.
+
+**Decisions worth defending.** stdlib `logging` with a JSON formatter rather
+than `structlog` — the plan's cut-line names structlog, but the codebase already
+uses `logging` everywhere, and a formatter gives identical structured output
+without a dependency or a rewrite of Day 1–3 call sites. The official
+`opentelemetry-instrumentation-fastapi` rather than a hand-rolled server span —
+W3C `traceparent` extraction is what will make the Phase 6 frontend and the arq
+worker join the same trace, and reimplementing it would be a bug farm. Langfuse
+kept out of `docker compose up` — six containers and several gigabytes, for a
+tool you look at occasionally; `infra/langfuse/docker-compose.langfuse.yml` is
+opt-in. No metrics: §12.4 puts the operational dashboard in a later phase, and
+metrics before there is real traffic measure nothing.
+
+322 tests pass (285 unit + 37 integration, the latter skipped with Docker
+closed), 1 opt-in live smoke test deselected. ruff, `ruff format --check` and
+`mypy --strict` clean.
+
+**Honest verification gap.** The Langfuse compose file has not been booted:
+Docker Desktop was not running on this machine during Day 4, and ClickHouse plus
+MinIO are a multi-gigabyte pull. What *is* tested is the part this project owns —
+that `OTEL_EXPORTER=langfuse` builds an OTLP exporter aimed at
+`/api/public/otel/v1/traces` with correct HTTP Basic credentials, and that the
+secret never appears in plain text anywhere. The compose file follows Langfuse's
+documented v3 stack and says so at the top of the file.
+
+**Open item for Day 5:** the offline stub provider needs an entry in
+`KNOWN_LLM_PROVIDERS`, and a replayed call must be impossible to mistake for a
+live one. `llm.provider="stub"` on the span gives that for free; the test
+asserting it is Day 5's to write.
+
+### Day 5 — the offline provider, and Phase 1 closed
+
+**What the plan asked for.** *"Offline replay mode (stub provider that serves
+recorded fixtures) so every future test runs without API calls. Unit tests for
+the router: 429 failover, schema retry, cache hit, cost math."* The router tests
+already existed — they were written on Day 3 alongside the machinery they cover —
+so the new work is the provider, the fixtures, and re-proving those same
+properties through the *shipped* offline provider rather than through a
+hand-written fake that only exists inside the test suite.
+
+**The stub is a provider, not a test double.** `app/llm/providers/stub.py`
+implements the same `LLMProvider` interface as the NVIDIA adapter, is built by
+the same `_build_provider` factory from the same settings, and is handed to the
+same router. `LLM_PROVIDER_ORDER=stub` is the entire difference, and it needs no
+API key. If the stub had its own path into `call_structured`, an offline test
+would be exercising a path production never runs — and would prove nothing.
+
+**Fixtures are keyed by a hash of the request, not by a name someone typed.**
+`fixture_key()` digests the assembled `CompletionRequest`: model, tier,
+temperature, top_p, output ceiling, reasoning policy, schema fingerprint and
+every message. So a changed prompt is a *different key*, which is a clean miss
+rather than yesterday's answer served silently for today's question. `timeout_s`
+is deliberately excluded — a deadline changes whether you get an answer, never
+which answer, and including it would invalidate every recording the day someone
+tunes `LLM_TIMEOUT_S`.
+
+**Replay and synthesis, and why the distinction is the whole design.** A replayed
+answer is a real model response captured once; a synthesized one is derived from
+the request's own JSON Schema and is shape-correct but semantically meaningless.
+Synthesis exists so a phase can be built before any recording of it exists.
+Confusing the two would be the worst possible outcome of this file — Phase 2
+onwards measures nDCG, QWK and attack success rate, and every one of those
+numbers is worthless if the answers underneath were invented. So they are
+impossible to confuse from outside: `structured_mode` is `stub_replay` or
+`stub_synthesized`, on the span, in `CallMeta`, and in the log line for every
+call. `LLM_STUB_ON_MISSING` defaults to `strict`, which raises rather than
+inventing anything.
+
+**The recording is real.** `backend/fixtures/llm/connectivity_probe.json` holds
+an actual Nemotron response to the Phase-1 exit-gate probe, captured from
+`integrate.api.nvidia.com` by `scripts/record_llm_fixture.py` — a wrapper around
+the real `call_structured`, so what is recorded is exactly what production sends.
+Replaying it exercises JSON extraction, pydantic validation, token accounting,
+cost arithmetic and span emission on genuine model output, with the network
+unplugged: the `no_network` fixture makes any connection to a non-loopback
+address raise, so "no API call happened" is enforced rather than asserted.
+
+**Recorded failures.** A fixture may record an *error* instead of a response
+(`{"error": {"kind": "rate_limited", ...}}`), mapped back to a real exception
+from `errors.py` through an explicit table — so a fixture can never name an
+arbitrary importable class. That is what lets an offline test drive the real
+retry loop, the real backoff and the real failover decision, rather than a fake
+provider that only exists in `tests/`.
+
+**Three problems found, all fixed, all with regression tests.**
+
+1. *A fixture could impersonate a live call.* `Fixture.structured_mode` was
+   passed straight through to the result, so a recording claiming `json_schema`
+   produced a `CallMeta` indistinguishable from a real NVIDIA call — in the log,
+   on the span, everywhere. The entire safety story rests on that field, so the
+   **provider** now supplies it and the data file cannot influence it; the
+   recording keeps its original mode as `recorded_structured_mode`, which is
+   provenance a human reads. Caught by the test that asserted the label.
+
+2. *Running a migration silently destroyed logging for the rest of the process.*
+   Alembic's generated `env.py` calls `fileConfig(alembic.ini)`, which disables
+   every existing logger and replaces the root handler. The integration suite
+   runs migrations in-process, so the first migration wiped the Day-4 logging
+   configuration and every observability test that ran afterwards captured
+   nothing. It stayed hidden for a full day because those tests only run when
+   Postgres is reachable — with Docker closed, everything passed. `env.py` now
+   calls the application's own `configure_logging()`, so the migrate container
+   emits the same structured, redacted JSON as the API. Guarded twice: a source
+   check that `env.py` never calls `fileConfig`, and an integration test that
+   runs a real migration and asserts the handler survives. Both were confirmed
+   to fail when the bug was deliberately reintroduced.
+
+3. *Logging configuration could itself fail to load.* Fixing (2) meant `env.py`
+   needed settings at import time, and `DatabaseSettings` requires
+   `DATABASE_URL` — so a migration with a missing URL would have crashed while
+   trying to configure the logger that was supposed to report it.
+   `LoggingSettings` was split out as the one settings class with **no required
+   fields**, and `DatabaseSettings` now inherits it.
+
+**Test isolation.** `LLM_PROVIDER_ORDER=stub` boots with no `NVIDIA_API_KEY` at
+all, asserted by a test rather than assumed. No fixture contains a credential;
+the whole working tree was scanned against the real `.env` values.
+
+**Phase 1 is closed.** 414 tests pass with Postgres and Redis up (377 unit, 37
+integration), plus the opt-in live smoke test, which was run and passed. ruff,
+`ruff format --check` and `mypy --strict` clean. `docker compose up` gives three
+healthy services, migrations applied, register → login → `/me` working, and one
+LLM call succeeding through `call_structured()` against both providers.
+
+**Day 4's open item is now closed.** The Langfuse compose file was written on
+Day 4 but never booted, and that was recorded as an honest gap. It was booted on
+Day 5: a real LLM span was exported over OTLP and read back through the Langfuse
+API as a `GENERATION` with model and token counts attached. Four bugs in that
+file were found and fixed doing it - an unquoted `ENCRYPTION_KEY` that YAML
+parsed as the integer `0`; a Redis with no password rejecting Langfuse's `AUTH`;
+`LANGFUSE_INIT_*` on the worker rather than the web container, which made the
+stack come up *healthy* while every API call returned 401 because no project had
+been created; and `dev@localhost` as the init email, which Langfuse rejects for
+having no TLD. Every one of them is now a comment at the line it broke. The
+privacy guarantee was re-checked at the boundary: the stored observation
+contains no prompt, no answer and no model output.
+
+**Open item for Day 6:** the fixture directory holds one recording. Phase 2's
+retrieval work does not need the LLM, but Phase 4's grading evals will need many
+— and §12.3 wants them keyed the way this store already keys them. The step to
+plan for is a *bulk* recorder, not a per-call one.

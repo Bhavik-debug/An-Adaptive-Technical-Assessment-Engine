@@ -16,34 +16,53 @@ Two project-specific decisions live here:
 from __future__ import annotations
 
 import asyncio
-from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.config import get_settings
+from app.config import get_database_settings, get_logging_settings
 
 # Importing the package registers every model on Base.metadata. Without this,
 # autogenerate would compare an empty catalogue against the database and cheerfully
 # propose dropping all your tables.
 from app.models import Base
+from app.obs import configure_logging
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Deliberately NOT `fileConfig(config.config_file_name)`, which is what Alembic's
+# generated template does.
+#
+# `fileConfig` disables every existing logger and *replaces* the root handler.
+# In the migrate container that would mean this one process emits a different,
+# unredacted format from everything else in the system. Worse, the integration
+# test suite runs migrations in-process: the first migration wiped the log
+# configuration for every test that ran afterwards, and the observability tests
+# silently captured nothing. That is the bug this line exists to prevent.
+#
+# `LoggingSettings` has no required fields, so this cannot fail - which matters
+# because a migration about to die on a missing DATABASE_URL still has to be
+# able to say so in a format someone can read (see app/config.py).
+configure_logging(get_logging_settings())
 
 target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    """Prefer an explicitly injected URL (tests), else the app's own settings."""
+    """Prefer an explicitly injected URL (tests), else the app's own settings.
+
+    ``DatabaseSettings`` rather than the full ``Settings``: a migration touches
+    only Postgres, and making a schema change - or a restore drill - depend on
+    an LLM credential being present would be coupling with a real cost. The URL
+    is still validated by the same field definition the API uses, so the two
+    cannot drift apart.
+    """
     injected = config.get_main_option("sqlalchemy.url")
     if injected:
         return injected
-    return get_settings().database_url
+    return get_database_settings().database_url
 
 
 def _configure(connection: Connection) -> None:

@@ -1,0 +1,49 @@
+# gitleaks configuration — plan section 14.3 ("gitleaks in CI").
+#
+# The default rule set does the work; this file exists only to say which
+# *deliberate* placeholders are not findings. Every entry needs a reason,
+# because an allowlist is how a real secret eventually gets ignored.
+#
+# Rule for adding to this file: allowlist a path only when the file's *purpose*
+# is to contain credential-shaped strings. Everything else gets a regex naming
+# the exact placeholder. `backend/tests/` as a whole is deliberately NOT
+# allowlisted — a test file is exactly where someone pastes a real key while
+# debugging, and that is the case this scanner exists to catch.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholders that are not credentials"
+
+paths = [
+  # The environment template. It ships a throwaway SECRET_KEY so that a clean
+  # clone boots, and an empty NVIDIA_API_KEY. Both are documented as dev-only
+  # inside the file itself.
+  '''\.env\.example$''',
+
+  # The blueprint. It quotes example keys and prices in prose.
+  '''^plan\.md$''',
+
+  # Unanchored on purpose: gitleaks reports repo-relative paths when scanning
+  # git history and absolute ones under --no-git, and the allowlist has to work
+  # in both so it can be verified locally the same way CI verifies it.
+  #
+  # The observability tests. Their entire subject is credential *shapes* — a
+  # JWT, an `nvapi-` key, a `Bearer` header, an argon2 hash — because each one
+  # is an assertion that the redactor masks that shape. Every string in these
+  # files is invented; none has ever been valid anywhere.
+  '''backend/tests/unit/obs/''',
+
+  # The opt-in local Langfuse stack. Every credential in it is a placeholder on
+  # a stack that binds to localhost, and none of them is read by the
+  # application — the API takes its Langfuse keys from the gitignored .env.
+  '''infra/langfuse/docker-compose\.langfuse\.yml$''',
+]
+
+regexes = [
+  # The literal placeholder in .env.example and in the README's quick start.
+  '''dev-only-secret-change-me-[0-9a-f]+''',
+  # Test fixtures use an obvious non-credential in place of a provider key.
+  '''unit-test-placeholder''',
+]

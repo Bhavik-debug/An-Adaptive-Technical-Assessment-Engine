@@ -26,6 +26,11 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=appuser:appuser app ./app
 COPY --chown=appuser:appuser migrations ./migrations
+# Recorded LLM responses (Day 5). Copied so that LLM_PROVIDER_ORDER=stub is a
+# working mode inside the container too - a stack that runs with no provider
+# credential at all is useful for a demo, and for any future CI that wants the
+# whole compose stack up without spending quota.
+COPY --chown=appuser:appuser fixtures ./fixtures
 COPY --chown=appuser:appuser alembic.ini pyproject.toml ./
 
 USER appuser

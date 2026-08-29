@@ -21,6 +21,8 @@ from app.cache import get_redis
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import User
+from app.obs import set_user_id
+from app.obs.tracing import set_span_attributes
 from app.security import InvalidToken, TokenType, decode_token
 
 
@@ -91,6 +93,12 @@ async def get_current_user(
         raise unauthorised
 
     request.state.user_id = user.id
+    # From here on, every log line and every span for this request says who it
+    # belonged to. A user id is an opaque UUID, not personal data - it is the
+    # join key that lets "this candidate's interview broke" be investigated
+    # without any candidate's email ever reaching a log file.
+    set_user_id(str(user.id))
+    set_span_attributes({"user.id": str(user.id)})
     return user
 
 

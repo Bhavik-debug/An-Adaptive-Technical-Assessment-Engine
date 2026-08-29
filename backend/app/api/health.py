@@ -27,6 +27,7 @@ from app.cache import check_redis
 from app.config import Settings
 from app.db import check_database
 from app.deps import get_app_settings
+from app.llm import llm_provider_health
 
 router = APIRouter(tags=["health"])
 
@@ -69,6 +70,40 @@ async def _run_check(name: str, probe: Callable[[], Awaitable[None]]) -> CheckRe
     )
 
 
+def _llm_check() -> CheckResult:
+    """Is at least one LLM provider in rotation?
+
+    Note what this deliberately does *not* do: send a completion.  ``/readyz``
+    is polled every few seconds by the orchestrator, and the free-tier quota
+    this project's cost model depends on is measured in requests per day - a
+    live probe would spend the whole budget on health checks.  So readiness here
+    means "configured, and not currently circuit-broken by real traffic", and
+    the honest end-to-end check is the opt-in smoke test.
+    """
+    providers = llm_provider_health()
+    if not providers:
+        return CheckResult(
+            name="llm_providers",
+            status="skipped",
+            latency_ms=0,
+            detail="router not initialised in this process",
+        )
+    available = [p.name for p in providers if p.available]
+    if not available:
+        return CheckResult(
+            name="llm_providers",
+            status="down",
+            latency_ms=0,
+            detail="; ".join(f"{p.name}: {p.detail or 'unavailable'}" for p in providers),
+        )
+    return CheckResult(
+        name="llm_providers",
+        status="ok",
+        latency_ms=0,
+        detail=f"{len(available)}/{len(providers)} in rotation: {', '.join(available)}",
+    )
+
+
 @router.get("/healthz", summary="Liveness probe")
 async def healthz(settings: Settings = Depends(get_app_settings)) -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name, "env": settings.app_env}
@@ -87,17 +122,7 @@ async def readyz(
         _run_check("postgres", lambda: check_database(timeout)),
         _run_check("redis", lambda: check_redis(timeout)),
     )
-    checks = [
-        *probed,
-        # The provider router lands on Day 3; until then this is honestly
-        # reported as not-yet-wired rather than silently passing.
-        CheckResult(
-            name="llm_providers",
-            status="skipped",
-            latency_ms=0,
-            detail="provider router not implemented yet (Phase 1, Day 3)",
-        ),
-    ]
+    checks = [*probed, _llm_check()]
 
     ready = not any(c.blocks_readiness for c in checks)
     if not ready:

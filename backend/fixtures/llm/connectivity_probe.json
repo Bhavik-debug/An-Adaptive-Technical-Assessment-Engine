@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "request_hash": "798692b4ee9734b9473f002c47a32087639dbe48a304dfaff6956b0aa6f55c2b",
+  "description": "connectivity_probe: the Day-5 offline replay of the Phase-1 exit-gate call. Recorded from nvidia/nemotron-3.5-lightning-30b-a3b on 2026-08-29 (structured_mode=json_schema, schema_retries=0).",
+  "text": "{\"ok\":true,\"echo\":\"replay01\",\"model_said\":\"Nemotron\"}",
+  "input_tokens": 322,
+  "output_tokens": 19,
+  "reasoning_tokens": 0,
+  "finish_reason": "stop",
+  "recorded_structured_mode": "json_schema",
+  "request_preview": {
+    "task": "connectivity_probe",
+    "inputs": {
+      "token": "replay01"
+    },
+    "prompt_version": "v1",
+    "prompt_fingerprint": "7465d8f5fd35",
+    "schema": "ProbeAnswer",
+    "schema_fingerprint": "3daa22402c5927c6",
+    "temperature": 0.0
+  }
+}

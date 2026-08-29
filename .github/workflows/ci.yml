@@ -1,0 +1,170 @@
+# Day 4, part 1 — the quality gate. Plan section 3 (Phase 1, Day 4):
+# "GitHub Actions CI: lint -> mypy -> pytest", and plan section 14.3, which
+# additionally puts `gitleaks` in CI under Secrets.
+#
+# Three properties this file is designed around:
+#
+#  1. **Reproducible.** Everything comes from the checkout and from pinned
+#     service images. Nothing depends on a developer's machine, and nothing is
+#     installed from a URL that could change under us.
+#  2. **No paid or uncontrolled LLM calls.** `pytest` is configured with
+#     `-m "not smoke"` (backend/pyproject.toml), so the one test that talks to
+#     NVIDIA is never selected here. The unit suite supplies a placeholder key
+#     from a fixture, so CI needs no provider credential at all — there is no
+#     `NVIDIA_API_KEY` secret referenced anywhere below.
+#  3. **No secret ever reaches a log.** The only credential-adjacent step is
+#     gitleaks, and it runs with `--redact`, which replaces any match with a
+#     placeholder before printing it.
+#
+# Deploy steps are deliberately absent. Plan section 14.3 puts build -> GHCR ->
+# SSH deploy in the Phase 6 pipeline; Days 1-29 are local-only.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first run still in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only ever reads the repository.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # -------------------------------------------------------------------------
+  # lint -> format -> types. Ordered as the plan states, in one job, so the
+  # cheapest check fails first and the log reads top to bottom.
+  # -------------------------------------------------------------------------
+  static:
+    name: Lint, format and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install the project and its dev tools
+        run: pip install -e "./backend[dev]"
+
+      - name: ruff check (lint)
+        working-directory: backend
+        run: ruff check .
+
+      - name: ruff format --check (formatting)
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: mypy --strict (types)
+        working-directory: backend
+        run: mypy --strict app
+
+  # -------------------------------------------------------------------------
+  # The test suite, against the same Postgres and Redis the app really uses.
+  # Plan section 13.10 wants real containers rather than mocks for integration
+  # tests: a mock cannot tell you that a migration does not apply.
+  # -------------------------------------------------------------------------
+  tests:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        # The same image docker-compose.yml uses, so CI and local development
+        # cannot disagree about whether pgvector and citext exist.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: interviewer
+          POSTGRES_PASSWORD: interviewer
+          POSTGRES_DB: interviewer
+        ports:
+          # Host ports match docker-compose.yml so the test defaults just work.
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U interviewer -d interviewer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      TEST_ADMIN_DSN: postgresql://interviewer:interviewer@localhost:5433/interviewer
+      TEST_DB_NAME: interviewer_test
+      TEST_REDIS_URL: redis://localhost:6380/15
+      # Integration tests SKIP when the stack is down, so a laptop with Docker
+      # closed still runs a green suite. In CI the stack is guaranteed, so a
+      # skip means something broke — this turns every such skip into a failure.
+      # Without it, "CI is green" could mean "CI ran 37 fewer tests".
+      REQUIRE_INTEGRATION: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install the project and its dev tools
+        run: pip install -e "./backend[dev]"
+
+      - name: pytest
+        working-directory: backend
+        # No provider credential is set for this step, on purpose: if a test
+        # ever starts needing a real key, it fails here rather than silently
+        # spending quota.
+        run: pytest
+
+  # -------------------------------------------------------------------------
+  # Plan section 14.3, Secrets: "Never in the image or repo; gitleaks in CI".
+  # -------------------------------------------------------------------------
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret that was committed and then deleted is still
+          # a leaked secret, and a shallow clone would not see it.
+          fetch-depth: 0
+
+      - name: The .env file must never be tracked
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is tracked by git. It holds real credentials and is gitignored for that reason."
+            exit 1
+          fi
+          echo "ok: .env is not tracked"
+
+      - name: gitleaks
+        # --redact: any match is masked before it is printed, so a finding
+        # never turns the CI log itself into the leak.
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --config=/repo/.gitleaks.toml \
+            --redact --no-banner --exit-code 1

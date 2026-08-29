@@ -41,3 +41,47 @@ _(items discovered mid-build that are out of scope go here rather than into the 
 - Reduced item count vs. the original blueprint: 150 items for V1, 250 by V3
   (was 300/1500). 110 items is an acceptable floor; **unreviewed items never are**.
 - Labelled eval set: 120 answers for V1, 200 by V3 (was 300).
+
+**Day 5 — deferred deliberately.**
+
+- **A bulk fixture recorder.** `scripts/record_llm_fixture.py` records one named
+  call at a time, which is right for Phase 1's single probe. Phase 4's grading
+  evals will need dozens, keyed the way plan §12.3 describes. Build the bulk
+  path when there is a dataset to record against, not before.
+- **A SQLite fixture store.** §12.3 suggests SQLite; this uses one JSON file per
+  recording. JSON is reviewable in a pull request and diffs legibly, which
+  matters more at one fixture than lookup speed does. Revisit if the directory
+  grows past a few hundred files — the `FixtureStore` interface is the only
+  thing that would change.
+- **Recording provider *failures* from real life.** The stub can replay a
+  recorded 429, but every such fixture today is authored rather than captured:
+  you cannot ask a provider to rate-limit you on demand. Capturing real ones
+  needs a passive recorder left running, which is Phase 6 work at the earliest.
+- **Semantic fidelity of synthesized answers.** Synthesis is shape-correct and
+  meaningless by design. Making it *plausible* (a grade that looks like a grade)
+  would be actively harmful — it would make a bad eval look like a good one.
+  Deliberately not doing this, ever.
+
+**Day 4 — deferred deliberately, all to Phase 6 unless noted.**
+
+- **Docker image build in CI.** Plan §14.3 puts `build → GHCR → SSH deploy` in
+  the Phase 6 pipeline. Day 4's brief is lint → mypy → pytest; adding a 3-minute
+  image build now buys a check that `docker compose up` already performs daily.
+- **Pinning CI action and container versions by digest.** §14.3 asks for pinned
+  base digests. `gitleaks` and `minio` currently float, because a version pinned
+  without ever running the pipeline is a guess that fails at pull time with a
+  confusing error. Pin every one of them on the first green CI run.
+- **Metrics** (Prometheus/OTel meters: p50/p95 latency, cache hit rate, error
+  rate by task, cost per interview). §12.4 is explicit that operational metrics
+  are a separate thing from evals and belong with a dashboard. Metrics computed
+  before there is real traffic measure nothing.
+- **Auto-instrumenting SQLAlchemy and Redis.** Two more dependencies and a large
+  increase in span volume, for questions nothing is asking yet. The `obs/` seam
+  makes it a one-line change when a slow query actually needs finding.
+- **Log shipping** (Loki/ELK). Days 1–29 are local-only; `docker compose logs`
+  is the log backend until there is somewhere to ship to.
+- **Trace sampling.** One developer's laptop produces every span it should keep.
+  Revisit if the Phase 6 VM's disk says otherwise.
+- ~~**Booting the Langfuse stack.**~~ **Done on Day 5.** Booted, a span exported
+  over OTLP and read back through the API. Four bugs in the compose file found
+  and fixed in the process; see `docs/observability.md`.

@@ -1,0 +1,172 @@
+# Self-hosted Langfuse — plan section 13.10 ("OpenTelemetry + Langfuse
+# self-hosted") and Day 4.
+#
+# DELIBERATELY SEPARATE from the project's docker-compose.yml. Langfuse v3 is
+# six containers and several gigabytes of images; making `docker compose up`
+# depend on that would trade a 30-second start-up for a five-minute one, every
+# day, for a tool you look at occasionally. The application does not need it:
+# with OTEL_EXPORTER=none (the default) spans are still created and every log
+# line still carries a trace id.
+#
+#   Start:  docker compose -f infra/langfuse/docker-compose.langfuse.yml up -d
+#   Stop:   docker compose -f infra/langfuse/docker-compose.langfuse.yml down
+#   UI:     http://localhost:3000   (login below, created on first boot)
+#
+# Then set OTEL_EXPORTER=langfuse in .env and restart the API. Full walkthrough:
+# docs/observability.md.
+#
+# VERIFICATION STATUS: booted and verified on 2026-08-29 (Day 5). A real LLM
+# span was exported over OTLP and read back through the Langfuse API. Getting
+# there fixed four bugs in this file, each marked with a comment where it was:
+# an unquoted ENCRYPTION_KEY that YAML turned into the integer 0; a Redis with no
+# password that rejected Langfuse's AUTH; LANGFUSE_INIT_* on the worker instead
+# of the web container; and `dev@localhost` as the init user's email, which
+# Langfuse rejects for having no TLD. If it later drifts from upstream,
+# Langfuse's own compose file is the source of truth.
+#
+# Every credential here is a LOCAL DEVELOPMENT PLACEHOLDER on a stack that binds
+# only to localhost. Nothing in this file is a real secret, and nothing in this
+# file is used by the application: the application reads its Langfuse keys from
+# .env, which is gitignored.
+
+name: adaptive-ai-interviewer-langfuse
+
+services:
+  langfuse-web:
+    image: langfuse/langfuse:3
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      SALT: local-dev-salt-not-a-secret
+      # Quoted, and not all-digits. Unquoted, YAML parses a 64-character run of
+      # digits as the integer 0 - Langfuse then rejects it as "must be 256 bits".
+      # That is exactly how this file failed the first time it was booted.
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: local-dev-nextauth-not-a-secret
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: "6379"
+      # Langfuse always sends AUTH, so the server must actually require a
+      # password - a Redis with no password rejects the command outright with
+      # "AUTH called without any password configured". Matches `--requirepass`
+      # on the redis service below.
+      REDIS_AUTH: langfuse-local-dev
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Creates the org, project and API keys on first boot, so you do not have
+      # to click through the UI to get a key pair. These two values are what go
+      # into LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY in your .env.
+      #
+      # They live in the shared anchor, which means the WEB container gets them -
+      # it is the one that logs "Running init scripts..." at start-up and acts on
+      # them. Having them only on the worker is how this file first failed: the
+      # stack came up healthy and every API call returned 401, because no project
+      # had ever been created.
+      LANGFUSE_INIT_ORG_ID: local
+      LANGFUSE_INIT_PROJECT_ID: interviewer
+      LANGFUSE_INIT_PROJECT_NAME: adaptive-ai-interviewer
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-dev
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-dev
+      # A real email shape, not dev@localhost: Langfuse validates this and
+      # rejects a hostname with no TLD, which stops the web container booting.
+      LANGFUSE_INIT_USER_EMAIL: dev@example.com
+      LANGFUSE_INIT_USER_NAME: dev
+      LANGFUSE_INIT_USER_PASSWORD: local-dev-password
+    restart: unless-stopped
+
+  # Processes the ingestion queue: OTLP spans land here before they are queryable.
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *langfuse-env
+    restart: unless-stopped
+
+  langfuse-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  langfuse-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "langfuse-local-dev"]
+    restart: unless-stopped
+
+  clickhouse:
+    # Langfuse v3 stores observations in ClickHouse: a column-oriented database
+    # built for exactly this shape of query — "p95 latency of grading calls,
+    # grouped by prompt version, last 24 hours" over millions of rows.
+    image: clickhouse/clickhouse-server:24.3
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    # S3-compatible object storage, for the raw event payloads Langfuse buffers
+    # before ingesting them. Unpinned on purpose: MinIO's tags are release
+    # timestamps, and naming one that has not been verified to exist would fail
+    # at pull time with a confusing error. Pin it once you have run this stack.
+    image: minio/minio:latest
+    # `mkdir` before `server`: Langfuse expects the bucket to exist, and with
+    # path-style addressing a bucket is just a directory under /data.
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    volumes:
+      - langfuse_minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  langfuse_postgres:
+  langfuse_clickhouse:
+  langfuse_minio:
