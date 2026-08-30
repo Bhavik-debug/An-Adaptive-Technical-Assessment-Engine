@@ -35,8 +35,22 @@ Days 1–29 are developed and verified entirely locally.
 
 ---
 
-## Phase 2 — Days 6–10 — Question bank & hybrid retrieval  ⬜
-- [ ] 150 reviewed items in `data/question-bank/*.jsonl`, passing CI validation
+## Phase 2 — Days 6–10 — Question bank & hybrid retrieval  🚧
+
+| Day | Build | Status |
+|:--:|---|:--:|
+| 6 | *(planned: bank schema + ingest + taxonomy)* — **built the bulk LLM fixture recorder instead**, see the Day 6 entry below | ✅ |
+| 7 | Bank sprint 1: 60 items across DSA, databases, system design — plus the Day-6 substrate they needed (schema, taxonomy, validator, ingest) | ✅ |
+| 8 | Embeddings, pgvector HNSW, hybrid search + RRF | ⬜ |
+| 9 | Cross-encoder rerank. Bank sprint 2: 50 items (OS, networks, API design) | ⬜ |
+| 10 | Retrieval eval set + the four-row ablation table. Bank sprint 3: 40 items | ⬜ |
+
+**Exit gate**
+- [~] 150 reviewed items in `data/question-bank/*.jsonl`, passing CI validation
+      *(60 items exist and pass validation as of Day 7. **None is reviewed yet** —
+      every one is `review_status: "drafted"`, which is the honest state for an
+      LLM-drafted item nobody has read line by line. The gate closes when a human
+      has approved them and `validate_question_bank.py --require-reviewed` exits 0.)*
 - [ ] `GET /questions/search` returns sensibly ranked results in <300 ms
 - [ ] Four-row ablation table exists (vector / BM25 / hybrid / hybrid+rerank)
 
@@ -555,3 +569,72 @@ without spending quota, and both replayed offline through the stub as
 `stub_replay` with their recorded token counts. The repository's own plan
 (`fixtures/recording_plans/connectivity_probe.json`) resolves to the exact
 `request_hash` the Day-5 fixture is already filed under — a test asserts it.
+
+### Day 7 — bank sprint 1, and the substrate it turned out to need
+
+**The blocker, stated first.** Day 7's brief is 60 items. Day 6's brief was the
+schema, the validator, the taxonomy and the ingest pipeline those items are
+written against — and Day 6 built the bulk fixture recorder instead. So there was
+nothing to author *into*: no `data/` directory, no `BankItem`, no controlled
+vocabulary, no way to check anything. The 60 items are the deliverable, but they
+would have been 60 unverifiable JSON blobs without the missing floor underneath
+them, so Day 7 built the minimum of it — derived from plan §6.3 and §9.1 and from
+the `Question` / `Topic` models that have existed since Day 2, **not** invented.
+No new migration: Day 2's tables were already the right shape.
+
+**`data/question-bank/`** — `taxonomy.json` plus one `.jsonl` per domain. The
+taxonomy is a data file rather than a Python dict because it is ingested into
+`topics`, which `questions` has foreign keys into, and because the pull request
+that adds a subtopic should show it next to the questions that needed it. Three
+domains, six topics, thirty-five subtopics — only the branches the sprint
+actually authored into; Days 9 and 10 add the rest.
+
+**`app/bank/schema.py`** — `BankItem`, mirroring `Question` so ingest is a
+projection rather than a translation, and carrying everything Postgres cannot
+express: 3–6 concepts, integer weights 1–3, `b ∈ [-3, 3]`, a reference answer
+with a floor on its length, and `extra="forbid"` — the most valuable line in the
+file, because a misspelt key in a hand-edited JSONL row otherwise silently drops
+`expected_concepts`, the one field the whole grader is built on.
+
+**`app/bank/loader.py`** — everything no single item can fail on its own.
+Duplicate ids, a subtopic that belongs to a different topic, two domains in one
+file, and near-verbatim duplicates by word-4-gram Jaccard. Every error is
+collected rather than raised, because a validator that stops at the first bad
+line turns a fifteen-minute fix into fifteen one-minute runs. The check worth
+naming is the **concept-key typo warning**: any two keys one character apart are
+flagged, because `hash_collision` and `hash_collisions` are two vocabulary
+entries, every score derived from either is computed over half the evidence, and
+nothing errors.
+
+**60 items: 20 DSA, 20 databases, 20 system design.** All 60 pass validation with
+zero warnings — no near-duplicates, no near-miss concept keys. Difficulty spans
+`b = -1.2` to `+1.6` and every value was estimated by comparison against the
+others rather than assigned, per §6.4.
+
+**The honest part, and the point of the day.** Every item is
+`source: "llm_drafted"`, `review_status: "drafted"`, `reviewed_by: null`. The
+schema will not accept `reviewed` without a named reviewer *and* a date, and will
+not accept `drafted` *with* either, so a half-finished review cannot read as a
+finished one; a test asserts it over the whole bank, because "150 reviewed items"
+is a gate somebody will eventually be tempted to meet with a search-and-replace.
+**Passing pydantic is not review.** A technically wrong question with three
+plausible concept keys passes every assertion in the suite.
+`scripts/review_question_bank.py` is the workflow: `--pending`, `--show` to read
+one item properly rather than as a wrapped JSON line, and `--approve --reviewer`
+which rewrites exactly that one line and re-validates.
+
+**Two findings for the reviewer, recorded rather than hidden.** The concept
+vocabulary is 220 keys across 60 items with only 13 reused — thin, and reuse is
+precisely what makes "missed `cache_invalidation` across three questions"
+possible, so sprints 2 and 3 should consolidate rather than mint. And the
+difficulty distribution leans hard: 49 of 60 items sit at `b ≥ 0`, with a single
+item below `-1`. A CAT cannot serve a struggling candidate from a bank with no
+easy end, so sprint 2 should deliberately target `b < -0.5`.
+
+524 tests pass (54 new), ruff, `ruff format --check` and `mypy --strict` clean,
+gitleaks clean. Verified by hand: all 60 items ingested into the real Postgres
+through `ingest_question_bank.py`, re-ingested with no change (the upsert is
+idempotent), `expected_concepts` round-tripped through JSONB intact, and the
+generated `tsv` column populated on all 60 rows without ingest ever writing it.
+No LLM API call was made at any point — the items were drafted in the chat UI,
+which is authoring, not runtime, and costs the product nothing.

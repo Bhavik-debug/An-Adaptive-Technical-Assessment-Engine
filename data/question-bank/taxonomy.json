@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "The controlled vocabulary for domain -> topic -> subtopic (plan section 9.1).",
+    "Keys are the primary key of the `topics` table, so they are globally unique",
+    "across all three levels and are never renamed once a question references one.",
+    "Only the branches Phase 2's bank sprints have actually authored into are",
+    "listed. Day 9 adds os/networks/api_design; Day 10 adds rag/llm_apps/react."
+  ],
+  "domains": [
+    {
+      "key": "cs_fundamentals",
+      "display_name": "CS Fundamentals",
+      "topics": [
+        {
+          "key": "dsa",
+          "display_name": "Data structures & algorithms",
+          "subtopics": [
+            {"key": "arrays", "display_name": "Arrays & two pointers"},
+            {"key": "strings", "display_name": "Strings"},
+            {"key": "hashing", "display_name": "Hashing & hash maps"},
+            {"key": "stacks_queues", "display_name": "Stacks & queues"},
+            {"key": "linked_lists", "display_name": "Linked lists"},
+            {"key": "trees", "display_name": "Trees & binary search trees"},
+            {"key": "graphs", "display_name": "Graphs"},
+            {"key": "binary_search", "display_name": "Binary search"},
+            {"key": "heaps", "display_name": "Heaps & priority queues"},
+            {"key": "greedy", "display_name": "Greedy algorithms"},
+            {"key": "dynamic_programming", "display_name": "Dynamic programming"},
+            {"key": "complexity_analysis", "display_name": "Complexity analysis"}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "backend",
+      "display_name": "Backend",
+      "topics": [
+        {
+          "key": "databases",
+          "display_name": "Databases",
+          "subtopics": [
+            {"key": "relational_modeling", "display_name": "Relational modelling"},
+            {"key": "normalization", "display_name": "Normalisation"},
+            {"key": "joins", "display_name": "Joins & set operations"},
+            {"key": "indexing", "display_name": "Indexing"},
+            {"key": "transactions", "display_name": "Transactions & ACID"},
+            {"key": "isolation_levels", "display_name": "Isolation levels"},
+            {"key": "concurrency_control", "display_name": "Concurrency & locking"},
+            {"key": "query_optimization", "display_name": "Query optimisation"},
+            {"key": "replication", "display_name": "Replication"},
+            {"key": "partitioning", "display_name": "Partitioning"}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "system_design",
+      "display_name": "System Design",
+      "topics": [
+        {
+          "key": "scalability",
+          "display_name": "Scalability",
+          "subtopics": [
+            {"key": "load_balancing", "display_name": "Load balancing"},
+            {"key": "horizontal_scaling", "display_name": "Horizontal scaling"},
+            {"key": "sharding", "display_name": "Sharding"},
+            {"key": "rate_limiting", "display_name": "Rate limiting"}
+          ]
+        },
+        {
+          "key": "caching",
+          "display_name": "Caching",
+          "subtopics": [
+            {"key": "cache_invalidation", "display_name": "Cache invalidation"},
+            {"key": "cache_eviction", "display_name": "Cache eviction"},
+            {"key": "cache_stampede", "display_name": "Cache stampede"}
+          ]
+        },
+        {
+          "key": "distributed_data",
+          "display_name": "Distributed data",
+          "subtopics": [
+            {"key": "consistency_models", "display_name": "Consistency models"},
+            {"key": "replication_topology", "display_name": "Replication topology"},
+            {"key": "storage_selection", "display_name": "Storage selection"}
+          ]
+        },
+        {
+          "key": "resilience",
+          "display_name": "Resilience & operations",
+          "subtopics": [
+            {"key": "fault_tolerance", "display_name": "Fault tolerance"},
+            {"key": "async_processing", "display_name": "Queues & async processing"},
+            {"key": "observability", "display_name": "Observability"}
+          ]
+        }
+      ]
+    }
+  ]
+}

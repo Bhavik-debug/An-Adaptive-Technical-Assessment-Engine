@@ -72,6 +72,17 @@ jobs:
         working-directory: backend
         run: mypy --strict app
 
+      # Plan section 3, Phase 2 Day 6: "CI check (every item has >=3 concepts,
+      # b in [-3,3], non-empty reference answer)". The dataset is an artefact of
+      # this repository, so it is checked like the code is. This runs the same
+      # `validate_bank()` that tests/unit/bank/test_committed_dataset.py runs -
+      # one mechanism, two front doors - and is here as well as in pytest
+      # because the printed report is what a reviewer reads, and because a
+      # dataset error should fail before the containers are even started.
+      - name: question bank validation
+        working-directory: backend
+        run: python scripts/validate_question_bank.py
+
   # -------------------------------------------------------------------------
   # The test suite, against the same Postgres and Redis the app really uses.
   # Plan section 13.10 wants real containers rather than mocks for integration

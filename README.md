@@ -446,6 +446,28 @@ through every Phase-1 check the same way.
 
 ---
 
+## The question bank
+
+`data/question-bank/` is a git-versioned dataset artefact, not a table someone
+types rows into: `taxonomy.json` holds the controlled vocabulary, and one
+`.jsonl` per domain holds the items. Full detail in
+[`docs/question-bank.md`](docs/question-bank.md).
+
+```bash
+cd backend
+python scripts/validate_question_bank.py --table    # report + per-item table
+python scripts/review_question_bank.py --pending    # what still needs a human
+python scripts/ingest_question_bank.py --dry-run    # validate; touch no database
+```
+
+The same `validate_bank()` runs in CI, in `pytest`, and behind the script, so
+they cannot disagree about what "valid" means. Every item carries a
+`review_status`, and the schema refuses `reviewed` without a named reviewer and
+a date — **an LLM-drafted item is never labelled human-reviewed**. Plan §6.4's
+cut-line is the reason: a wrong concept key silently corrupts every score
+derived from it, so unreviewed items are never acceptable in a bank that is
+serving candidates. Run ingest with `--only-reviewed` anywhere real.
+
 ## Database & migrations
 
 Schema changes are Alembic migrations, forward-only, one revision per change.
@@ -501,15 +523,24 @@ backend/app/          FastAPI modular monolith
     client.py         call_structured() and CallMeta
     runtime.py        process lifecycle, wired into the FastAPI lifespan
     recording.py      the bulk fixture recorder (Day 6): plan -> chokepoint -> fixture
+  bank/               the question bank — see docs/question-bank.md
+    taxonomy.py       the controlled vocabulary: domain -> topic -> subtopic
+    schema.py         BankItem — what one item must look like
+    loader.py         reading the files + every check that spans two items
+    ingest.py         JSONL -> topics + questions, idempotent, never deletes
+data/question-bank/   THE DATASET: taxonomy.json + one .jsonl per domain
 backend/fixtures/llm/ recorded model responses the stub replays
 backend/fixtures/recording_plans/  what to record, as JSON — input, never output
 backend/scripts/      record_llm_fixture{,s}.py — the only things that spend quota
+                      validate_question_bank.py / review_question_bank.py /
+                      ingest_question_bank.py — the bank's command line
 backend/migrations/   Alembic environment and versions
 backend/tests/        pytest (unit = offline, integration = real PG+Redis,
                       smoke = opt-in, hits a real provider)
 infra/postgres/init/  pgvector + citext extensions, run once on an empty volume
 infra/langfuse/       opt-in self-hosted Langfuse stack (not part of `docker compose up`)
 docs/observability.md logging, tracing, redaction, and how to run Langfuse locally
+docs/question-bank.md the item schema, the review rule, validation and ingest
 docs/adr/             architecture decision records
 .github/workflows/    ci.yml — lint, format, types, tests, secret scan
 .gitleaks.toml        secret-scanner allowlist (documented placeholders only)

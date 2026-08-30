@@ -42,6 +42,28 @@ _(items discovered mid-build that are out of scope go here rather than into the 
   (was 300/1500). 110 items is an acceptable floor; **unreviewed items never are**.
 - Labelled eval set: 120 answers for V1, 200 by V3 (was 300).
 
+**Day 7 — deferred deliberately.**
+
+- **Human review of the 60 items.** Not deferred so much as *not yet done*: all
+  60 are `review_status: "drafted"`. The Phase 2 exit gate does not close until
+  a person has read each one and `validate_question_bank.py --require-reviewed`
+  exits 0. ~90 minutes of work at §6.4's 90-seconds-per-item budget.
+- **A concept-key vocabulary file.** 220 keys across 60 items, only 13 reused.
+  The validator warns on near-miss keys, which catches typos, but nothing stops
+  a genuinely new synonym being minted. A committed vocabulary with an
+  allowlist check is the fix; doing it now, before sprints 2 and 3 reveal which
+  keys actually recur, would be guessing at the vocabulary rather than
+  observing it.
+- **Difficulty calibration.** Every `b` is a comparative human estimate and
+  every `discrimination_a` is 1.0, because calibration (§5.11) needs real
+  response data that does not exist yet. Deliberate: a fitted `a` from zero
+  observations is a fabricated number.
+- **Deleting orphaned questions on ingest.** Ingest reports rows that are in the
+  database but no longer in the files, and leaves them alone. `turns.question_id`
+  references `questions.id`, so a cascade would erase interview history to tidy
+  up a dataset edit. Revisit with a real retirement workflow (`retired_at`)
+  in Phase 5, when there is history worth protecting.
+
 **Day 5 — deferred deliberately.**
 
 - **A bulk fixture recorder.** ~~`scripts/record_llm_fixture.py` records one named
