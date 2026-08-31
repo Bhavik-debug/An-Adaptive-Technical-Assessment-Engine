@@ -26,3 +26,8 @@ dist/
 *.sqlite3
 uploads/
 .DS_Store
+
+# Embedding model weights (Day 8). Downloaded once from HuggingFace, ~67 MB.
+# A model binary is not source; `pip install -e "./backend[embeddings]"` and the
+# first run fetch it again on a clean clone.
+.model-cache/

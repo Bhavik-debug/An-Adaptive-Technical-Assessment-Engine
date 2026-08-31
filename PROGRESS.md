@@ -41,9 +41,9 @@ Days 1–29 are developed and verified entirely locally.
 |:--:|---|:--:|
 | 6 | *(planned: bank schema + ingest + taxonomy)* — **built the bulk LLM fixture recorder instead**, see the Day 6 entry below | ✅ |
 | 7 | Bank sprint 1: 60 items across DSA, databases, system design — plus the Day-6 substrate they needed (schema, taxonomy, validator, ingest) | ✅ |
-| 8 | Embeddings, pgvector HNSW, hybrid search + RRF | ⬜ |
-| 9 | Cross-encoder rerank. Bank sprint 2: 50 items (OS, networks, API design) | ⬜ |
-| 10 | Retrieval eval set + the four-row ablation table. Bank sprint 3: 40 items | ⬜ |
+| 8 | Embeddings, pgvector HNSW, hybrid search + RRF | ✅ |
+| 9 | Cross-encoder rerank (`bge-reranker-base`, local CPU) ✅ · bank sprint 2 (50 items) ⬜ | 🚧 |
+| 10 | Retrieval eval set + the four-row ablation table ✅ · bank sprint 3 (40 items) ⬜ | 🚧 |
 
 **Exit gate**
 - [~] 150 reviewed items in `data/question-bank/*.jsonl`, passing CI validation
@@ -52,7 +52,14 @@ Days 1–29 are developed and verified entirely locally.
       LLM-drafted item nobody has read line by line. The gate closes when a human
       has approved them and `validate_question_bank.py --require-reviewed` exits 0.)*
 - [ ] `GET /questions/search` returns sensibly ranked results in <300 ms
-- [ ] Four-row ablation table exists (vector / BM25 / hybrid / hybrid+rerank)
+      *(not built: the endpoint is not Day 8's, 9's or 10's brief. The retrieval
+      layer it would wrap is complete and measured; `scripts/search_questions.py`
+      drives it. Hybrid RRF answers in ~58 ms, comfortably inside the budget;
+      hybrid+rerank does not, at ~3.4 s.)*
+- [x] Four-row ablation table exists (vector / lexical / hybrid / hybrid+rerank)
+      *(`evals/reports/retrieval_ablation.md`, 40 labelled queries, real models.
+      **Hybrid+rerank did NOT win** — Hybrid RRF did. Investigated and written up
+      as the plan requires, not tuned away.)*
 
 ## Phase 3 — Days 11–15 — The adaptive engine (θ, RD, CAT)  ⬜
 - [ ] `tests/unit/test_ability.py` passes, including property tests
@@ -638,3 +645,250 @@ idempotent), `expected_concepts` round-tripped through JSONB intact, and the
 generated `tsv` column populated on all 60 rows without ingest ever writing it.
 No LLM API call was made at any point — the items were drafted in the chat UI,
 which is authoring, not runtime, and costs the product nothing.
+
+### Day 8 — embeddings, pgvector and hybrid retrieval
+
+The bank became searchable two ways at once: by meaning and by words.
+
+**The model, and why not the obvious one.** `BAAI/bge-small-en-v1.5`, 384
+dimensions, ~67 MB, on the CPU. Run through **fastembed** (ONNX) rather than
+`sentence-transformers`, which needs ~2.5 GB of PyTorch to serve a 67 MB model.
+It is an **optional extra** (`pip install -e "./backend[embeddings]"`), because
+CI has no reason to download a model — see the test seam below. Embeddings
+deliberately do not go through `app/llm/`: that layer exists to control cost,
+routing and failover for a metered remote API, and this model is local, free per
+call, and has nothing to fail over to.
+
+**What is embedded.** One function, `document_text()` — the question, its
+concept keys, its taxonomy, its tags. Not the id (opaque), not `difficulty_b`
+(a number whose text means nothing to a language model; it is a *filter*, applied
+in SQL), and not `reference_answer` (it describes the answer, and is ~10× longer
+than the question, so it would drown it). Snake_case keys are humanised:
+`cache_invalidation` → `cache invalidation`, because the model has seen those two
+English words often and the identifier almost never.
+
+**Two bugs found by running it, both real.**
+
+*Vector and lexical were searching different corpora.* Day 2's `tsv` was
+generated from `text` alone, which was right when lexical was the only search.
+Once the embedding covered concepts and tags too, fusing the two rankings
+compared two different document sets. It showed up immediately: "cache stampede
+thundering herd" returned **nothing** lexically, because those words live in
+`expected_concepts`, not the prose. Fixed with a stored `search_document` column
+holding exactly the embedded string, with `tsv` generated from
+`coalesce(search_document, text)` — the COALESCE means a row not yet re-ingested
+keeps the old behaviour, so the migration cannot leave lexical search returning
+nothing.
+
+*A circular import.* `app/models/question.py` needs `EMBEDDING_DIM` to declare
+its column width, so *models* imports from *retrieval*, while
+`retrieval/indexing.py` imports the models. Eager re-exports in
+`app/retrieval/__init__.py` turned that into a genuine cycle. The package
+`__init__` now imports nothing, which makes `embedding` a leaf anything may
+depend on.
+
+**Idempotency.** Each row stores `embedding_model` and `embedding_text_sha256` —
+a hash of the exact text embedded, including a recipe version. Re-ingesting an
+unchanged bank does **zero** model work (60 embedded → 0 embedded, 60 reused);
+editing one question re-embeds exactly that one; changing the model re-embeds
+all 60, because vectors from two models are not comparable. Embedding happens in
+the *same transaction* as the row upsert, so rows and vectors cannot disagree —
+two commands that must both be run in order is a system that eventually is
+inconsistent.
+
+**RRF, and the honest note about HNSW.** Fusion uses ranks only, because a
+cosine similarity of 0.78 and a `ts_rank_cd` of 0.043 are numbers on unrelated
+scales. k = 60 (Cormack et al. 2009); a test demonstrates *why* by showing that
+k = 60 rewards agreement between the two retrievers while k = 0.5 rewards a
+single first place. Ordering is total — score, then best rank, then id — so
+tests can assert on it. And the HNSW index, at 60 rows, **is not used**: a
+sequential scan is genuinely cheaper and the planner is right. A test forces
+`enable_seqscan = off` to prove the index, operator class and query are
+compatible, which is the part that could actually be wrong.
+
+**The test seam, and the line it must not cross.** The default suite drives the
+whole pipeline — vector column, `<=>`, fusion, idempotency — with a
+`HashingEmbedder`: a real bag-of-words vector, 384-d and L2-normalised, no model
+and no download. It matches words, not meaning, so **no test using it may claim
+semantic behaviour**. That claim lives in `test_real_model.py` behind
+`pytest -m embeddings`, against the real model, or it is not made. Those
+assertions are relative ("closer than") rather than absolute, because bge
+similarities sit in a narrow high band — two unrelated technical questions still
+score ~0.6, so any "similarity > 0.7 means relevant" threshold would be invented.
+
+622 tests pass (98 new) plus 10 opt-in real-model tests, ruff, `ruff format
+--check` and `mypy --strict` clean, gitleaks clean. Verified by hand end to end:
+migration applied to the populated database with all 60 rows preserved, all 60
+embedded, re-ingest embedded none, and hybrid search on "database indexes" put
+`db-index-001` first by fusing vector rank 2 with lexical rank 1 — above the item
+vector search alone ranked first. Measured on 60 rows: hybrid 35.5 ms total, of
+which ~33 ms is embedding the query and ~3 ms is both SQL queries. Those numbers
+describe a laptop and 60 rows and prove nothing about scale; what they show is
+where the time goes.
+
+**Not done, deliberately:** no `GET /questions/search` endpoint, no reranking,
+no adaptive selection. Days 9 and 10.
+
+### Day 9 — the cross-encoder reranker
+
+Stage 2. Day 8 gets the right question *into* the candidate list; this gets it to
+the top.
+
+**The concept, because it is the point of the day.** Day 8's `bge-small` is a
+*bi-encoder*: it compresses each question into 384 numbers before any query
+exists, so the question is summarised without ever having seen what someone
+would ask. `bge-reranker-base` is a *cross-encoder*: it reads the query and one
+candidate **together** and emits one relevance score. Far more accurate, and it
+cannot be an index — nothing is precomputable, so it is one model pass per
+candidate. That is the whole argument for two stages: RRF narrows 60 (later
+100,000) to 40, the cross-encoder scores those 40 and returns 8. Recall first,
+precision second.
+
+**No new dependency.** fastembed's `TextCrossEncoder` supports
+`BAAI/bge-reranker-base` — the plan's exact model — over ONNX, so Day 9 reuses
+Day 8's `[embeddings]` extra and its `.model-cache/` directory. The alternatives
+(`FlagEmbedding`, `sentence-transformers`) both want ~2.5 GB of PyTorch to run a
+model that was already reachable.
+
+**The score is a logit, not a probability.** Unbounded, routinely negative, and
+comparable only *within* one query. Nothing transforms it — a sigmoid would
+manufacture a number that looks like a confidence and is not one — and nothing
+thresholds it, because an honest threshold needs the labelled data Day 10
+produces.
+
+**What the model is shown, and why it matters.** The same `search_document`
+Day 8 indexes: question + concepts + taxonomy + tags. Showing the reranker *less*
+than the retrievers saw would reintroduce, one stage later, exactly the
+corpus-mismatch bug Day 8 found — a candidate retrieved *because* of a concept
+key could be demoted by a reranker blind to it. "thundering herd" lives in one
+item's `expected_concepts` and nowhere in its prose, which is precisely the query
+where stage 2 would otherwise undo stage 1. An opt-in test asserts the real model
+does score that item higher with the concept line present. This needed one
+additive change to Day 8 — `search_document` selected into `QuestionRef` — and no
+change to how anything ranks.
+
+**Fallback is a first-class outcome.** Reranking improves an ordering; it is
+never a dependency of having one. A model that will not load returns stage 1's
+ranking, logs a warning, and reports `reranked=False` with a reason. Every
+`rerank_score` is `None` rather than `0.0`, because a zero reads like a
+measurement. Disabled, broken, and a wrong-length score list are three distinct
+reason strings — a reranker that silently stops working looks exactly like one
+that works, which is the worst possible failure for a component whose only job is
+ordering quality.
+
+**Determinism.** Sorted by score, then the *retrieval* rank, then the id. Using
+Day 8's rank as the secondary key rather than the id means that where the
+reranker is indifferent the result degrades toward the ranking that would have
+been served anyway, instead of toward an arbitrary alphabetical one.
+
+**Layering.** `search.py` does not import `rerank`; `rerank` does not run
+queries; `pipeline.py` is the only module that knows both exist. Phase 3 changes
+candidate *selection* (difficulty and coverage constraints) and must not require
+touching the reranker.
+
+**Verified against the real model, and one plan estimate turned out wrong.**
+Scores are floats and every one is negative (best −1.64, irrelevant −10.19),
+confirming logits rather than probabilities; identical across processes minutes
+apart, so deterministic; an empty document list returns `[]` without loading
+anything; the model loads from disk in ~3 s after a ~21-minute first download of
+~1.1 GB. Cost is ~100 ms per candidate on this laptop, linear in candidate count
+— so 40 candidates is ~4 s, against plan §5.3's estimate of ~250 ms. The
+difference is document length, not the model: one-sentence documents cost ~27 ms
+each, real `search_document` texts are 150–200 tokens and cost ~100 ms. Recorded
+rather than optimised away; every lever is a trade against ranking quality that
+Day 10's evaluation should choose, not a guess made today.
+
+**The document choice was decided by measurement, not taste.** For the query
+"thundering herd", showing the reranker prose alone scores the correct item
+−10.195 against a distractor's −10.192 — it cannot separate them at all, and in
+fact ranks the right answer marginally *below*. Adding the concept line moves the
+target to −0.634 and leaves the distractor at −10.193: a margin of +9.56. An
+opt-in test pins exactly that comparison.
+
+686 tests pass (64 new) plus 22 opt-in model tests, ruff, `ruff format --check`
+and `mypy --strict` clean, gitleaks clean. Verified by hand end to end against
+the real models: `"thundering herd"` returns `sys-cache-003` first, found by both
+retrievers and scored −1.64 by the cross-encoder while every other candidate sits
+at −10.19.
+
+**Not done, deliberately:** no `GET /questions/search` endpoint, no Recall@10 /
+MRR / nDCG, no ablation table, no thresholds or K tuning — all Day 10. **Bank
+sprint 2 (50 items on OS, networks, API design) is also Day 9 in the plan and was
+not done**; this session was scoped to the reranker. The bank is still 60 items,
+and still none of them human-reviewed.
+
+### Day 10 — measuring the retrieval system, and an unwelcome result
+
+Days 8 and 9 proved the pipeline runs. Day 10 asks whether it is any good, and
+the answer was not the expected one.
+
+**The ground truth.** 40 queries in `evals/datasets/retrieval_queries.jsonl`,
+each with its relevant question ids graded 0-2, covering 55 of the 60 bank
+questions. Labels were assigned by reading all 60 questions and were written
+**before any retrieval was run against them**, so none was chosen to flatter a
+result. Every query carries a `note` explaining the choice and a `kind` recording
+which retrieval situation it tests — semantic, lexical, hybrid, rerank, hard — so
+results can be broken down. An average over mixed cases hides exactly what an
+ablation is for. The loader cross-checks every label against the real bank: a
+label pointing at a nonexistent id would look like a permanent retrieval failure
+that no amount of work could fix.
+
+**The metrics are pure functions** — no database, no models, no config — tested
+against hand-worked examples whose expected values were computed from the
+definition rather than recorded from a run. Recall@K, MRR and nDCG@10, with an
+empty relevant set raising rather than silently returning 0 or 1.
+
+**The result.**
+
+| Method | Recall@5 | Recall@10 | MRR | nDCG@10 | ms/query |
+|---|---|---|---|---|---|
+| Vector only | 0.850 | 0.883 | 0.908 | 0.877 | 66 |
+| Lexical only | 0.208 | 0.208 | 0.300 | 0.269 | 1 |
+| **Hybrid RRF** | **0.850** | **0.883** | **0.921** | **0.886** | 58 |
+| Hybrid + reranker | 0.746 | 0.875 | 0.906 | 0.858 | 3448 |
+
+**Hybrid RRF wins. Day 9's cross-encoder made every metric worse, for 42x the
+latency.** The plan anticipated this possibility and asked for it to be
+investigated rather than hidden, so: the by-kind breakdown shows reranking is
+*perfect* on exact-term queries (MRR 0.944 -> 1.000) and loses ground on the
+`rerank`-kind queries written specifically to reward it (1.000 -> 0.778). The
+mechanism is visible in the per-query data — hybrid already puts the right answer
+at rank 1 for **34 of 40 queries**, so there is almost nothing left to win and a
+great deal to lose, and the cross-encoder's scores sit in a narrow band
+(-3.7 to -6.8 across one query's top ten) where it is reordering candidates it
+finds near-equivalent. For "does the order of columns in a multi-column index
+matter" it ranked a **linked-list question above the composite-index question**.
+
+**A hypothesis formed, tested and rejected.** That failure suggested Day 9's
+choice to show the reranker the full `search_document` might be the cause — a
+decision made then on a single measured case. Measured properly across all 40
+queries: `search_document` scores MRR 0.906 / nDCG 0.858, bare question text
+scores 0.832 / 0.797. Day 9's choice is clearly better in aggregate despite being
+worse on the one case that suggested the idea. A single example is not evidence,
+which is the entire argument for having an evaluation set. **Nothing was
+changed.**
+
+**Nothing was tuned.** Not the K values, not the document recipe, not the default
+backends — and no threshold was added. An evaluation set the system has been
+fitted to has stopped measuring anything, and Hybrid RRF winning on 40 queries
+against 60 documents is a finding, not a mandate to change a default.
+
+**Determinism, measured rather than asserted.** The whole run was repeated end to
+end: every metric identical to three decimal places, only timings moved (the
+reranker column 4379 -> 3448 ms/query).
+
+**Honest limits, stated in full in `docs/evaluation.md`:** 40 queries is small
+(the plan wanted 100) and 60 documents is very small, which structurally
+*disadvantages* the reranker — finding one of 60 is easy, and stage 1 is rarely
+uncertain enough to leave it room. One annotator, no inter-annotator agreement.
+The queries were written by the person who wrote the questions, which is the
+largest threat to validity here. No confidence intervals; the hybrid-vs-vector
+MRR gap of 0.013 is smaller than a single query is worth.
+
+780 tests pass (94 new), 22 opt-in model tests, ruff, `ruff format --check` and
+`mypy --strict` clean, gitleaks clean.
+
+**Not done, deliberately:** no `GET /questions/search` endpoint, no thresholds,
+no tuning, no adaptive logic. **Bank sprint 3 (40 items) is also Day 10 in the
+plan and was not done** — this session was scoped to evaluation. The bank remains
+60 items, none human-reviewed.

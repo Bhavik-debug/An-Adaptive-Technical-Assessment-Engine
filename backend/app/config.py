@@ -158,6 +158,65 @@ class Settings(DatabaseSettings):
     #: Either way the answer records which happened, in CallMeta.structured_mode.
     llm_stub_on_missing: Literal["strict", "synthesize"] = "strict"
 
+    # --- Embeddings and retrieval (Day 8) -----------------------------------
+    # Embeddings are NOT an LLM concern and deliberately do not go through the
+    # `llm/` chokepoint: that layer exists to control cost, routing and failover
+    # for a metered remote API. This model runs locally on CPU, costs nothing
+    # per call, and has no provider to fail over to. Sharing the abstraction
+    # would buy nothing and would make an offline component depend on an
+    # online one.
+    #:   fastembed - the real model. Needs the optional [embeddings] extra.
+    #:   hashing   - a deterministic in-repo stand-in. NOT semantic; it exists
+    #:               so the test suite and CI never download a model.
+    embedding_backend: Literal["fastembed", "hashing"] = "fastembed"
+    #: Changing this invalidates every stored vector: `embedding_model` is
+    #: recorded per row, and the embed step re-embeds anything that disagrees.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    #: Where the downloaded weights live. Empty means `<repo>/.model-cache`,
+    #: which is gitignored. fastembed's own default is a temp directory, and a
+    #: cache the operating system may delete is a 67 MB download every reboot.
+    embedding_cache_dir: str | None = None
+    embedding_batch_size: int = Field(default=32, ge=1, le=512)
+
+    # Retrieval K values (plan section 3, Day 8). Two different things:
+    # *candidate* K is how many each retriever proposes, *final* K is how many
+    # survive fusion. Candidates are deliberately larger - a document ranked
+    # 25th by vectors and 3rd lexically should get the chance to be fused.
+    retrieval_vector_k: int = Field(default=30, ge=1, le=500)
+    retrieval_lexical_k: int = Field(default=30, ge=1, le=500)
+    retrieval_final_k: int = Field(default=10, ge=1, le=100)
+    #: RRF's damping constant. 60 is the value from Cormack et al. (2009), the
+    #: paper the method comes from. See app/retrieval/rrf.py.
+    retrieval_rrf_k: float = Field(default=60.0, gt=0, le=1000)
+
+    # --- Cross-encoder reranking (Day 9) ------------------------------------
+    # Stage 2. The bi-encoder above narrows the bank to a candidate set; this
+    # model reads the query and each candidate TOGETHER and scores the pair.
+    # It cannot be an index - one forward pass per candidate - which is exactly
+    # why it runs over ~40 candidates and not over the whole bank.
+    #: Off means the hybrid (RRF) order is served unchanged, and the result says
+    #: so. Reranking is an improvement to the ordering, never a dependency of it.
+    rerank_enabled: bool = True
+    #:   fastembed - the real cross-encoder. Needs the [embeddings] extra.
+    #:   overlap   - a deterministic in-repo stand-in scoring word overlap.
+    #:               NOT relevance judgement; it exists so the test suite and CI
+    #:               never download a model.
+    rerank_backend: Literal["fastembed", "overlap"] = "fastembed"
+    rerank_model: str = "BAAI/bge-reranker-base"
+    #: Empty means the same `<repo>/.model-cache` the embedder uses - one
+    #: gitignored directory for every model this project downloads.
+    rerank_cache_dir: str | None = None
+    rerank_batch_size: int = Field(default=16, ge=1, le=128)
+
+    # Plan section 5.3: "the bi-encoder to go from 150 to 40 and the
+    # cross-encoder to go from 40 to 8. Recall first, precision second."
+    #: How many hybrid candidates are scored. This is what `hybrid_search` is
+    #: asked for when reranking is on - deliberately far larger than the final
+    #: K, because the reranker can only promote what stage 1 handed it.
+    rerank_candidate_k: int = Field(default=40, ge=1, le=200)
+    #: How many survive reranking. The number a caller actually wants.
+    rerank_final_k: int = Field(default=8, ge=1, le=100)
+
     # --- Observability (plan section 14.2, Day 4) ---------------------------
     # Spans are created whenever this is on, even with no exporter: that is
     # what puts a `trace_id` on every log line, which is most of the value.

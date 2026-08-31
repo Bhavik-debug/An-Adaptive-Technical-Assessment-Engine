@@ -27,9 +27,25 @@ dependencies = [
     "opentelemetry-sdk>=1.44,<1.45",
     "opentelemetry-exporter-otlp-proto-http>=1.44,<1.45",
     "opentelemetry-instrumentation-fastapi>=0.65b0,<0.66",
+    # pgvector's SQLAlchemy type (Day 8). Pure Python and tiny: it teaches
+    # SQLAlchemy the `vector` column type and the distance operators. The
+    # *extension* is installed by infra/postgres/init/001-extensions.sql.
+    "pgvector>=0.3,<0.4",
 ]
 
 [project.optional-dependencies]
+# The embedding model runtime (Day 8). Deliberately OPTIONAL, for two reasons:
+# CI never needs it, because the test suite runs against a deterministic
+# in-repo embedder; and it pulls ~200 MB of onnxruntime that nothing else in
+# the project uses. Install it when you want real semantic search locally:
+#     pip install -e "./backend[embeddings]"
+embeddings = [
+    # ONNX runtime for BAAI/bge-small-en-v1.5. Chosen over sentence-transformers
+    # because it needs no PyTorch (~2.5 GB) for a 133 MB model, and because
+    # bge-small-en-v1.5 is fastembed's own default - pooling and L2
+    # normalisation are handled the way the model card specifies.
+    "fastembed>=0.4,<0.8",
+]
 dev = [
     "pytest>=8.3,<9.0",
     "pytest-asyncio>=0.24,<0.25",
@@ -51,11 +67,15 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-# `-m "not smoke"`: the default suite is deterministic and offline. The live
-# NVIDIA smoke test is opted into explicitly with `pytest -m smoke tests/smoke`.
-addopts = "-q -m 'not smoke'"
+# The default suite is deterministic, offline and free.
+#   `not smoke`      - the live NVIDIA test, opted into with `pytest -m smoke tests/smoke`.
+#   `not embeddings` - the tests that load the real bge model, which needs the
+#                      optional [embeddings] extra and a one-time 133 MB download.
+#                      Opt in with `pytest -m embeddings`.
+addopts = "-q -m 'not smoke and not embeddings'"
 markers = [
     "smoke: hits a real LLM provider; needs NVIDIA_API_KEY; excluded by default",
+    "embeddings: loads the real bge-small-en-v1.5 model; needs the [embeddings] extra",
 ]
 
 [tool.ruff]
@@ -82,3 +102,11 @@ disallow_untyped_decorators = false
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+
+# pgvector ships no py.typed marker; fastembed is an OPTIONAL extra, so in CI -
+# where `mypy --strict app` runs without it - the module is genuinely absent.
+# Both are used behind our own typed wrappers (app/models/question.py and
+# app/retrieval/embedders.py), which is where the types that matter are declared.
+[[tool.mypy.overrides]]
+module = ["pgvector.*", "fastembed.*"]
+ignore_missing_imports = true

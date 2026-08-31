@@ -468,6 +468,98 @@ cut-line is the reason: a wrong concept key silently corrupts every score
 derived from it, so unreviewed items are never acceptable in a bank that is
 serving candidates. Run ingest with `--only-reviewed` anywhere real.
 
+## Retrieval — two-stage search over the bank
+
+Day 8. Two ways of finding a question, combined:
+
+* **Vector search** — `BAAI/bge-small-en-v1.5` (384-d, local CPU, ~67 MB) turns
+  text into numbers so that *meaning* can be compared. Stored in a
+  `vector(384)` column with a pgvector **HNSW** index, queried with cosine
+  distance. Finds "How can a relational database speed up slow lookups?" →
+  the B-tree index question, which shares almost none of its words.
+* **Lexical search** — PostgreSQL `tsvector` + GIN + `ts_rank_cd`. Finds exact
+  terms and acronyms, which embeddings blur.
+* **Reciprocal Rank Fusion** combines the two ranked lists using only ranks,
+  because a cosine similarity and a `ts_rank_cd` are not comparable numbers.
+
+```bash
+pip install -e "./backend[embeddings]"   # optional extra, ~200 MB, once
+cd backend
+alembic upgrade head
+python scripts/ingest_question_bank.py   # validate → rows → embeddings, one transaction
+
+python scripts/search_questions.py "how do database indexes improve performance"
+python scripts/search_questions.py "MVCC" --mode lexical    # one retriever alone
+```
+
+Embedding is part of ingest rather than a second command, so the rows and the
+vectors cannot disagree; re-running embeds only what actually changed. The
+default test suite never downloads a model — it drives the whole pipeline with a
+deterministic in-repo embedder, and the real model's behaviour is asserted
+separately behind `pytest -m embeddings`.
+
+**If embeddings, vectors, cosine similarity, pgvector, HNSW or RRF are new to
+you, [`docs/retrieval.md`](docs/retrieval.md) explains all of them from
+scratch.**
+
+### Stage 2 — cross-encoder reranking
+
+Day 9. Stage 1 is good at *recall* — getting the right question somewhere into
+the candidate list — and less good at *precision*, because the embedding model
+summarised each question into 384 numbers before any query existed. A
+**cross-encoder** (`BAAI/bge-reranker-base`, ~110M parameters, local CPU) reads
+the query and one candidate **together** and scores the pair, which is far more
+accurate — and far too slow to run over a whole bank, since nothing can be
+precomputed and there is no index.
+
+Hence two stages: RRF narrows 60 (later 100,000) to **40 candidates**, the
+cross-encoder scores those 40 and returns the best **8**.
+
+```bash
+cd backend
+python scripts/search_questions.py "how do database indexes improve performance"
+python scripts/search_questions.py "how do database indexes improve performance" --no-rerank
+RERANK_BACKEND=overlap python scripts/search_questions.py "cache stampede"   # no model
+```
+
+The output shows both rankings, so you can see what reranking changed. The score
+is a raw logit — **not** a probability, often negative — so nothing transforms it
+or thresholds it. If the model cannot load, the pipeline serves stage 1's
+ranking and says so (`reranked=False` plus a reason); it never pretends.
+[`docs/reranking.md`](docs/reranking.md) explains cross-encoders from scratch.
+
+### Measuring it — the four-row ablation
+
+Day 10. Days 8 and 9 established that retrieval *runs*; this measures how well.
+40 hand-labelled queries (`evals/datasets/`), graded 0–2, scored with
+**Recall@K**, **MRR** and **nDCG@10** across four configurations:
+
+| Method | Recall@5 | Recall@10 | MRR | nDCG@10 | ms/query |
+|---|---|---|---|---|---|
+| Vector only | 0.850 | 0.883 | 0.908 | 0.877 | 66 |
+| Lexical only | 0.208 | 0.208 | 0.300 | 0.269 | 1 |
+| **Hybrid RRF** | **0.850** | **0.883** | **0.921** | **0.886** | 58 |
+| Hybrid + reranker | 0.746 | 0.875 | 0.906 | 0.858 | 3448 |
+
+```bash
+cd backend
+python scripts/run_retrieval_eval.py --per-query      # ~2.5 min, real models
+python scripts/run_retrieval_eval.py --no-rerank      # seconds
+```
+
+**Hybrid RRF wins, and reranking made things worse** — on every metric, for 42×
+the latency. That is an honest measured result, not the expected one, and it is
+written up rather than tuned away: the by-kind breakdown shows the cross-encoder
+scoring a perfect 1.000 on exact-term queries while losing ground elsewhere,
+because hybrid already puts the right answer first for 34 of 40 queries and
+reordering a correct ranking can only cost. **No configuration was changed in
+response** — tuning against the evaluation set would destroy its value as a
+measurement. Full analysis and limitations in
+[`docs/evaluation.md`](docs/evaluation.md); the numbers above come from 40
+queries against 60 documents and do not generalise to production.
+
+Nothing here is exposed over HTTP yet; `GET /questions/search` comes later.
+
 ## Database & migrations
 
 Schema changes are Alembic migrations, forward-only, one revision per change.
@@ -527,13 +619,31 @@ backend/app/          FastAPI modular monolith
     taxonomy.py       the controlled vocabulary: domain -> topic -> subtopic
     schema.py         BankItem — what one item must look like
     loader.py         reading the files + every check that spans two items
-    ingest.py         JSONL -> topics + questions, idempotent, never deletes
+    ingest.py         JSONL -> topics + questions + vectors, one transaction
+  retrieval/          two-stage search — docs/retrieval.md + docs/reranking.md
+    embedding.py      what text is embedded; the Embedder interface
+    embedders.py      bge-small via fastembed, and a deterministic stand-in
+    indexing.py       writing vectors, skipping what has not changed
+    rrf.py            Reciprocal Rank Fusion — pure, no I/O
+    search.py         stage 1: vector search, lexical search, hybrid over both
+    rerank.py         stage 2: the Reranker interface, ordering, fallback
+    rerankers.py      bge-reranker-base via fastembed, and a stand-in
+    pipeline.py       composes the two stages
+  evaluation/         how well retrieval works — see docs/evaluation.md
+    metrics.py        Recall@K, MRR, nDCG — pure, no database, no models
+    dataset.py        the labelled queries and their known-relevant ids
+    runner.py         runs the eval set through each retrieval mode
+    report.py         formats an EvalReport into tables
+evals/datasets/       THE GROUND TRUTH: 40 labelled retrieval queries
+evals/reports/        committed ablation results, regenerated by a script
 data/question-bank/   THE DATASET: taxonomy.json + one .jsonl per domain
 backend/fixtures/llm/ recorded model responses the stub replays
 backend/fixtures/recording_plans/  what to record, as JSON — input, never output
 backend/scripts/      record_llm_fixture{,s}.py — the only things that spend quota
                       validate_question_bank.py / review_question_bank.py /
                       ingest_question_bank.py — the bank's command line
+                      search_questions.py — drive hybrid retrieval by hand
+                      run_retrieval_eval.py — the four-row ablation
 backend/migrations/   Alembic environment and versions
 backend/tests/        pytest (unit = offline, integration = real PG+Redis,
                       smoke = opt-in, hits a real provider)
@@ -541,6 +651,9 @@ infra/postgres/init/  pgvector + citext extensions, run once on an empty volume
 infra/langfuse/       opt-in self-hosted Langfuse stack (not part of `docker compose up`)
 docs/observability.md logging, tracing, redaction, and how to run Langfuse locally
 docs/question-bank.md the item schema, the review rule, validation and ingest
+docs/retrieval.md     embeddings, pgvector, HNSW, lexical search and RRF, from scratch
+docs/reranking.md     cross-encoders, the two-stage design, score semantics, fallback
+docs/evaluation.md    ground truth, Recall@K, MRR, nDCG, the ablation — from scratch
 docs/adr/             architecture decision records
 .github/workflows/    ci.yml — lint, format, types, tests, secret scan
 .gitleaks.toml        secret-scanner allowlist (documented placeholders only)

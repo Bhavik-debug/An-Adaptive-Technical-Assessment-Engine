@@ -7,9 +7,13 @@ exactly the failure mode migrations exist to prevent.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 EXPECTED_TABLES = {
     "users",
@@ -31,10 +35,18 @@ async def test_every_core_table_exists(db_engine: AsyncEngine):
     assert EXPECTED_TABLES <= tables
 
 
-async def test_alembic_stamped_the_revision(db_engine: AsyncEngine):
+async def test_alembic_stamped_the_head_revision(db_engine: AsyncEngine):
+    """Whatever the newest migration is, the test database is at it.
+
+    Read from the migrations directory rather than hard-coded, so adding a
+    migration does not fail a test that has nothing to do with it - while still
+    catching the real failure, which is a migration that did not apply.
+    """
+    versions = sorted((BACKEND_DIR / "migrations" / "versions").glob("[0-9]*.py"))
+    expected = versions[-1].name.split("_", 1)[0]
     async with db_engine.connect() as conn:
         version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "0001"
+    assert version == expected
 
 
 async def test_email_is_case_insensitive_and_unique(db_engine: AsyncEngine):

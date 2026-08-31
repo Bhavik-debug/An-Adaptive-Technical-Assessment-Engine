@@ -4,6 +4,8 @@
     python scripts/ingest_question_bank.py --dry-run
     python scripts/ingest_question_bank.py
     python scripts/ingest_question_bank.py --only-reviewed   # the production posture
+    python scripts/ingest_question_bank.py --no-embed        # rows only, no vectors
+    python scripts/ingest_question_bank.py --reembed         # force every vector
 
 Idempotent: an upsert keyed on the readable question id, so running it twice is
 running it once.  It refuses to write anything if the dataset does not validate,
@@ -13,6 +15,18 @@ tell the difference.
 Deletions are never automatic.  An item removed from the files is *reported*;
 ``turns.question_id`` references ``questions.id``, and a silent cascade would
 erase interview history to tidy up a dataset edit.
+
+**Embeddings are written here too (Day 8)**, in the same transaction as the
+rows, so the two cannot disagree.  Only questions whose stored fingerprint no
+longer matches are re-embedded, so re-running an unchanged bank does no model
+work.  The real model needs the optional extra::
+
+    pip install -e "./backend[embeddings]"
+
+Without it, either pass ``--no-embed`` or set ``EMBEDDING_BACKEND=hashing``.
+The failure is loud rather than a silent skip: rows without vectors are
+invisible to vector search, and discovering that from an empty result list is
+much worse than being told at ingest time.
 """
 
 from __future__ import annotations
@@ -32,11 +46,18 @@ from app.bank.ingest import ingest_bank  # noqa: E402
 from app.bank.loader import validate_bank  # noqa: E402
 from app.bank.taxonomy import TaxonomyError, load_taxonomy  # noqa: E402
 from app.config import Settings  # noqa: E402
+from app.retrieval.embedders import EmbeddingBackendUnavailable, build_embedder  # noqa: E402
+from app.retrieval.embedding import Embedder  # noqa: E402
 
 DOTENV = BACKEND.parent / ".env"
 
 
-async def _run(database_url: str, only_reviewed: bool) -> int:
+async def _run(
+    database_url: str,
+    only_reviewed: bool,
+    embedder: Embedder | None,
+    reembed: bool,
+) -> int:
     taxonomy = load_taxonomy()
     report = validate_bank(taxonomy=taxonomy)
     if not report.ok:
@@ -49,12 +70,24 @@ async def _run(database_url: str, only_reviewed: bool) -> int:
     try:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
-            result = await ingest_bank(session, report, taxonomy, only_reviewed=only_reviewed)
+            result = await ingest_bank(
+                session,
+                report,
+                taxonomy,
+                only_reviewed=only_reviewed,
+                embedder=embedder,
+                reembed=reembed,
+            )
             await session.commit()
     finally:
         await engine.dispose()
 
     print(f"ingested: {result.summary}")
+    if result.embeddings is not None and result.embeddings.missing_rows:
+        print(
+            f"\nwarning: {len(result.embeddings.missing_rows)} item(s) had no row to embed: "
+            + ", ".join(result.embeddings.missing_rows[:5])
+        )
     if result.unreviewed_question_ids:
         print(
             f"\nwarning: {len(result.unreviewed_question_ids)} ingested item(s) are drafts "
@@ -85,6 +118,17 @@ def main() -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="validate and report; touch no database"
     )
+    parser.add_argument(
+        "--no-embed",
+        dest="embed",
+        action="store_false",
+        help="write rows only; leave every embedding NULL",
+    )
+    parser.add_argument(
+        "--reembed",
+        action="store_true",
+        help="re-embed every question even when its stored fingerprint still matches",
+    )
     args = parser.parse_args()
 
     try:
@@ -105,12 +149,22 @@ def main() -> int:
             print(f"  x {error}", file=sys.stderr)
         return 0 if report.ok else 1
 
-    database_url = args.database_url
-    if database_url is None:
-        settings = Settings(_env_file=DOTENV if DOTENV.exists() else None)  # type: ignore[call-arg]
-        database_url = settings.database_url
+    settings = Settings(_env_file=DOTENV if DOTENV.exists() else None)  # type: ignore[call-arg]
+    database_url = args.database_url or settings.database_url
 
-    return asyncio.run(_run(database_url, args.only_reviewed))
+    embedder: Embedder | None = None
+    if args.embed:
+        try:
+            embedder = build_embedder(settings)
+            # Load now rather than after the rows are written: a model that
+            # cannot load should cost nothing, not a rolled-back transaction.
+            embedder.embed_query("warm up")
+        except EmbeddingBackendUnavailable as exc:
+            print(f"embedding backend unavailable:\n{exc}", file=sys.stderr)
+            return 1
+        print(f"embedding with {embedder.model_id} ({embedder.dimension} dimensions)")
+
+    return asyncio.run(_run(database_url, args.only_reviewed, embedder, args.reembed))
 
 
 if __name__ == "__main__":
