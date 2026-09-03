@@ -91,7 +91,14 @@ ignore = ["S101"]  # assert is fine in tests
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S105", "S106"]  # hardcoded test secrets are intentional
+# S105/S106: hardcoded test secrets are intentional.
+# S311: a seeded `random.Random` is how the Day 12 epsilon-greedy tests stay
+# deterministic. The rule is about cryptographic use; there is none in tests.
+"tests/*" = ["S105", "S106", "S311"]
+# S311 again: the Day 13 simulation IS seeded pseudo-randomness - synthetic
+# candidates, Beta-distributed grades, policy exploration. Reproducibility is
+# the requirement; cryptographic strength would actively break it.
+"app/simulation/*" = ["S311"]
 
 [tool.mypy]
 python_version = "3.12"
