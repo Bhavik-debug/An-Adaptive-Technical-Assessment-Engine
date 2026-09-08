@@ -54,12 +54,15 @@ What is deliberately not here
 -----------------------------
 
 * **The blueprint builder** (topic quotas, item budget, time budget) - plan
-  section 3, Day 15.  This package *consumes* a quota mapping; it does not build
-  one.  DEFERRED.
+  section 3, now built as :mod:`app.blueprint` (Day 15).  This package still
+  *consumes* a quota mapping and does not build one, and it does **not** import
+  the blueprint package: the arrow points blueprint -> selection, so Day 12 stays
+  usable on its own.
 * **The simulation harness** - 200 synthetic candidates, the response model and
   the CAT-vs-random-vs-fixed comparison (plan section 8.6) - now built, in
   ``app.simulation`` (Day 13).  It *imports* this package and never modifies it.
-  The convergence chart is Day 14 and is still DEFERRED.
+  The convergence analysis and its charts are ``app.simulation.convergence`` and
+  ``app.simulation.figures`` (Day 14), and likewise only read from here.
 * **Difficulty recalibration** (plan section 5.11), which is what the
   exploration data is *for*.  DEFERRED.
 * **The relaxation ladder** for an exhausted pool (plan section 8.7: widen the

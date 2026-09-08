@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980.00 444.00" width="980.00" height="444.00" role="img" aria-label="MAE spread across candidates">
+<title>MAE spread across candidates</title>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;}
+@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+text{font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;fill:var(--ink-2)}
+.t{font-size:15px;font-weight:600;fill:var(--ink)}
+.s{font-size:12px;fill:var(--muted)}
+.p{font-size:12px;font-weight:600;fill:var(--ink)}
+.a{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.l{font-size:12px;fill:var(--ink-2)}
+.v{font-size:11px;font-weight:600;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+.g{stroke:var(--grid);stroke-width:1;fill:none}
+.x{stroke:var(--axis);stroke-width:1;fill:none}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+</style>
+<rect width="980.00" height="444.00" fill="var(--surface)"/>
+<text class="t" x="20.00" y="28.00">MAE spread across candidates</text>
+<text class="s" x="20.00" y="48.00">Median with the interquartile range. Synthetic environment — see docs/simulation.md.</text>
+<text class="s" x="20.00" y="68.00">MAE (θ units)</text>
+<text class="p" x="66.00" y="98.00">adaptive</text>
+<line class="g" x1="66.00" y1="336.00" x2="316.00" y2="336.00"/>
+<text class="a" x="58.00" y="339.50" text-anchor="end">0.00</text>
+<line class="g" x1="66.00" y1="290.00" x2="316.00" y2="290.00"/>
+<text class="a" x="58.00" y="293.50" text-anchor="end">0.20</text>
+<line class="g" x1="66.00" y1="244.00" x2="316.00" y2="244.00"/>
+<text class="a" x="58.00" y="247.50" text-anchor="end">0.40</text>
+<line class="g" x1="66.00" y1="198.00" x2="316.00" y2="198.00"/>
+<text class="a" x="58.00" y="201.50" text-anchor="end">0.60</text>
+<line class="g" x1="66.00" y1="152.00" x2="316.00" y2="152.00"/>
+<text class="a" x="58.00" y="155.50" text-anchor="end">0.80</text>
+<line class="g" x1="66.00" y1="106.00" x2="316.00" y2="106.00"/>
+<text class="a" x="58.00" y="109.50" text-anchor="end">1.00</text>
+<line class="x" x1="66.00" y1="336.00" x2="316.00" y2="336.00"/>
+<text class="a" x="66.00" y="352.00" text-anchor="middle">0</text>
+<text class="a" x="128.50" y="352.00" text-anchor="middle">5</text>
+<text class="a" x="191.00" y="352.00" text-anchor="middle">10</text>
+<text class="a" x="253.50" y="352.00" text-anchor="middle">15</text>
+<text class="a" x="316.00" y="352.00" text-anchor="middle">20</text>
+<line x1="66.00" y1="221.00" x2="316.00" y2="221.00" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="a" x="314.00" y="216.00" text-anchor="end">MAE = 0.5</text>
+<polygon points="66.00,121.79 78.50,130.48 91.00,141.64 103.50,142.19 116.00,149.02 128.50,156.05 141.00,158.08 153.50,163.69 166.00,171.77 178.50,176.44 191.00,176.77 203.50,180.48 216.00,185.82 228.50,190.67 241.00,193.59 253.50,198.40 266.00,199.15 278.50,204.09 291.00,211.12 303.50,213.66 316.00,216.45 316.00,272.66 303.50,271.50 291.00,270.62 278.50,265.06 266.00,265.83 253.50,262.37 241.00,260.77 228.50,259.97 216.00,258.34 203.50,258.17 191.00,257.18 178.50,254.90 166.00,249.78 153.50,249.14 141.00,242.09 128.50,239.42 116.00,236.14 103.50,234.65 91.00,232.03 78.50,228.61 66.00,220.27" fill="var(--s1)" fill-opacity="0.10" stroke="none"/>
+<polyline class="ln" points="66.00,184.65 78.50,189.74 91.00,196.67 103.50,201.31 116.00,203.08 128.50,210.45 141.00,209.98 153.50,216.32 166.00,217.84 178.50,223.80 191.00,223.31 203.50,225.69 216.00,227.15 228.50,230.78 241.00,234.44 253.50,231.96 266.00,234.95 278.50,237.70 291.00,243.25 303.50,246.92 316.00,248.09" stroke="var(--s1)"/>
+<circle cx="316.00" cy="248.09" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+<text class="p" x="388.00" y="98.00">random</text>
+<line class="g" x1="388.00" y1="336.00" x2="638.00" y2="336.00"/>
+<text class="a" x="380.00" y="339.50" text-anchor="end">0.00</text>
+<line class="g" x1="388.00" y1="290.00" x2="638.00" y2="290.00"/>
+<text class="a" x="380.00" y="293.50" text-anchor="end">0.20</text>
+<line class="g" x1="388.00" y1="244.00" x2="638.00" y2="244.00"/>
+<text class="a" x="380.00" y="247.50" text-anchor="end">0.40</text>
+<line class="g" x1="388.00" y1="198.00" x2="638.00" y2="198.00"/>
+<text class="a" x="380.00" y="201.50" text-anchor="end">0.60</text>
+<line class="g" x1="388.00" y1="152.00" x2="638.00" y2="152.00"/>
+<text class="a" x="380.00" y="155.50" text-anchor="end">0.80</text>
+<line class="g" x1="388.00" y1="106.00" x2="638.00" y2="106.00"/>
+<text class="a" x="380.00" y="109.50" text-anchor="end">1.00</text>
+<line class="x" x1="388.00" y1="336.00" x2="638.00" y2="336.00"/>
+<text class="a" x="388.00" y="352.00" text-anchor="middle">0</text>
+<text class="a" x="450.50" y="352.00" text-anchor="middle">5</text>
+<text class="a" x="513.00" y="352.00" text-anchor="middle">10</text>
+<text class="a" x="575.50" y="352.00" text-anchor="middle">15</text>
+<text class="a" x="638.00" y="352.00" text-anchor="middle">20</text>
+<line x1="388.00" y1="221.00" x2="638.00" y2="221.00" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="a" x="636.00" y="216.00" text-anchor="end">MAE = 0.5</text>
+<polygon points="388.00,121.79 400.50,130.04 413.00,136.45 425.50,145.65 438.00,155.68 450.50,160.77 463.00,165.13 475.50,173.37 488.00,175.83 500.50,181.41 513.00,187.73 525.50,189.33 538.00,195.09 550.50,197.32 563.00,202.36 575.50,205.81 588.00,211.15 600.50,212.28 613.00,215.07 625.50,217.98 638.00,221.49 638.00,272.21 625.50,269.51 613.00,268.81 600.50,266.70 588.00,265.71 575.50,263.54 563.00,259.90 550.50,258.82 538.00,255.99 525.50,256.19 513.00,253.52 500.50,249.39 488.00,245.61 475.50,243.16 463.00,239.62 450.50,237.03 438.00,233.44 425.50,231.21 413.00,226.66 400.50,226.28 388.00,220.27" fill="var(--s2)" fill-opacity="0.10" stroke="none"/>
+<polyline class="ln" points="388.00,184.65 400.50,189.48 413.00,195.51 425.50,199.64 438.00,205.01 450.50,210.20 463.00,213.57 475.50,216.35 488.00,219.76 500.50,223.23 513.00,225.68 525.50,227.99 538.00,230.31 550.50,232.37 563.00,233.13 575.50,234.24 588.00,236.94 600.50,245.17 613.00,246.92 625.50,249.71 638.00,250.94" stroke="var(--s2)"/>
+<circle cx="638.00" cy="250.94" r="4" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>
+<text class="p" x="710.00" y="98.00">fixed</text>
+<line class="g" x1="710.00" y1="336.00" x2="960.00" y2="336.00"/>
+<text class="a" x="702.00" y="339.50" text-anchor="end">0.00</text>
+<line class="g" x1="710.00" y1="290.00" x2="960.00" y2="290.00"/>
+<text class="a" x="702.00" y="293.50" text-anchor="end">0.20</text>
+<line class="g" x1="710.00" y1="244.00" x2="960.00" y2="244.00"/>
+<text class="a" x="702.00" y="247.50" text-anchor="end">0.40</text>
+<line class="g" x1="710.00" y1="198.00" x2="960.00" y2="198.00"/>
+<text class="a" x="702.00" y="201.50" text-anchor="end">0.60</text>
+<line class="g" x1="710.00" y1="152.00" x2="960.00" y2="152.00"/>
+<text class="a" x="702.00" y="155.50" text-anchor="end">0.80</text>
+<line class="g" x1="710.00" y1="106.00" x2="960.00" y2="106.00"/>
+<text class="a" x="702.00" y="109.50" text-anchor="end">1.00</text>
+<line class="x" x1="710.00" y1="336.00" x2="960.00" y2="336.00"/>
+<text class="a" x="710.00" y="352.00" text-anchor="middle">0</text>
+<text class="a" x="772.50" y="352.00" text-anchor="middle">5</text>
+<text class="a" x="835.00" y="352.00" text-anchor="middle">10</text>
+<text class="a" x="897.50" y="352.00" text-anchor="middle">15</text>
+<text class="a" x="960.00" y="352.00" text-anchor="middle">20</text>
+<line x1="710.00" y1="221.00" x2="960.00" y2="221.00" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="a" x="958.00" y="216.00" text-anchor="end">MAE = 0.5</text>
+<polygon points="710.00,121.79 722.50,123.47 735.00,125.11 747.50,133.38 760.00,136.09 772.50,142.16 785.00,148.92 797.50,154.20 810.00,157.76 822.50,163.21 835.00,165.44 847.50,171.94 860.00,174.70 872.50,180.20 885.00,181.04 897.50,188.08 910.00,188.85 922.50,191.35 935.00,193.15 947.50,194.83 960.00,194.68 960.00,260.49 947.50,260.39 935.00,260.32 922.50,259.46 910.00,258.37 897.50,258.20 885.00,254.87 872.50,248.80 860.00,247.73 847.50,244.36 835.00,242.82 822.50,241.53 810.00,240.42 797.50,236.35 785.00,234.85 772.50,232.80 760.00,231.23 747.50,226.80 735.00,224.83 722.50,222.74 710.00,220.27" fill="var(--s3)" fill-opacity="0.10" stroke="none"/>
+<polyline class="ln" points="710.00,184.65 722.50,191.19 735.00,191.88 747.50,194.17 760.00,194.99 772.50,198.56 785.00,198.56 797.50,200.87 810.00,204.86 822.50,207.85 835.00,210.39 847.50,213.25 860.00,217.32 872.50,220.17 885.00,227.20 897.50,229.22 910.00,232.41 922.50,233.94 935.00,233.89 947.50,234.71 960.00,235.72" stroke="var(--s3)"/>
+<circle cx="960.00" cy="235.72" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>
+<text class="s" x="490.00" y="382.00" text-anchor="middle">questions asked</text>
+<line class="ln" x1="20.00" y1="406.00" x2="38.00" y2="406.00" stroke="var(--s1)"/>
+<text class="l" x="46.00" y="410.00">adaptive</text>
+<line class="ln" x1="120.80" y1="406.00" x2="138.80" y2="406.00" stroke="var(--s2)"/>
+<text class="l" x="146.80" y="410.00">random</text>
+<line class="ln" x1="208.40" y1="406.00" x2="226.40" y2="406.00" stroke="var(--s3)"/>
+<text class="l" x="234.40" y="410.00">fixed</text>
+</svg>

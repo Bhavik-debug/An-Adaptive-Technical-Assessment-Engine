@@ -173,6 +173,23 @@ def mean_curve(trajectories: Sequence[Sequence[float]], length: int) -> list[flo
     return [math.fsum(t[i] for t in filled) / len(filled) for i in range(length)]
 
 
+def default_steps(budget: int) -> tuple[int, ...]:
+    """Which item counts a table of a trajectory should print.
+
+    Roughly seven evenly spaced columns, always including the cold start and
+    always including the budget itself - a table that stopped at 18 of 20 would
+    omit the number every other table in the report quotes.
+
+    Shared by Day 13's ``curve_table`` and Day 14's figure tables so the two
+    sample the *same* item counts; two tables of the same curve at different
+    x positions invite a comparison that is not being made.
+    """
+    if budget < 0:
+        raise ValueError(f"budget must not be negative, got {budget!r}")
+    stride = max(1, budget // 6)
+    return tuple(sorted({0, *range(stride, budget + 1, stride), budget}))
+
+
 # ---------------------------------------------------------------------------
 # 4. aggregation
 # ---------------------------------------------------------------------------
@@ -268,6 +285,7 @@ __all__ = [
     "Distribution",
     "absolute_errors",
     "count_by",
+    "default_steps",
     "first_index_at_or_below",
     "forward_filled",
     "mae",

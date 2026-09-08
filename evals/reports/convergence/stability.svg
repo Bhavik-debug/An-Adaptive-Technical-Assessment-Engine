@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.00 492.00" width="746.00" height="492.00" role="img" aria-label="Movement of θ per answer">
+<title>Movement of θ per answer</title>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;}
+@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+text{font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;fill:var(--ink-2)}
+.t{font-size:15px;font-weight:600;fill:var(--ink)}
+.s{font-size:12px;fill:var(--muted)}
+.p{font-size:12px;font-weight:600;fill:var(--ink)}
+.a{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.l{font-size:12px;fill:var(--ink-2)}
+.v{font-size:11px;font-weight:600;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+.g{stroke:var(--grid);stroke-width:1;fill:none}
+.x{stroke:var(--axis);stroke-width:1;fill:none}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+</style>
+<rect width="746.00" height="492.00" fill="var(--surface)"/>
+<text class="t" x="20.00" y="28.00">Movement of θ per answer</text>
+<text class="s" x="20.00" y="48.00">Mean |Δθ| on the answer at each position. Synthetic environment — see docs/simulation.md.</text>
+<text class="s" x="20.00" y="68.00">mean |Δθ| (θ units)</text>
+<line class="g" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="58.00" y="387.50" text-anchor="end">0.00</text>
+<line class="g" x1="66.00" y1="309.00" x2="726.00" y2="309.00"/>
+<text class="a" x="58.00" y="312.50" text-anchor="end">0.05</text>
+<line class="g" x1="66.00" y1="234.00" x2="726.00" y2="234.00"/>
+<text class="a" x="58.00" y="237.50" text-anchor="end">0.10</text>
+<line class="g" x1="66.00" y1="159.00" x2="726.00" y2="159.00"/>
+<text class="a" x="58.00" y="162.50" text-anchor="end">0.15</text>
+<line class="g" x1="66.00" y1="84.00" x2="726.00" y2="84.00"/>
+<text class="a" x="58.00" y="87.50" text-anchor="end">0.20</text>
+<line class="x" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="66.00" y="400.00" text-anchor="middle">1</text>
+<text class="a" x="135.47" y="400.00" text-anchor="middle">3</text>
+<text class="a" x="204.95" y="400.00" text-anchor="middle">5</text>
+<text class="a" x="274.42" y="400.00" text-anchor="middle">7</text>
+<text class="a" x="343.89" y="400.00" text-anchor="middle">9</text>
+<text class="a" x="413.37" y="400.00" text-anchor="middle">11</text>
+<text class="a" x="482.84" y="400.00" text-anchor="middle">13</text>
+<text class="a" x="552.32" y="400.00" text-anchor="middle">15</text>
+<text class="a" x="621.79" y="400.00" text-anchor="middle">17</text>
+<text class="a" x="691.26" y="400.00" text-anchor="middle">19</text>
+<line x1="66.00" y1="309.00" x2="726.00" y2="309.00" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="a" x="724.00" y="304.00" text-anchor="end">Day 12 “no new information” = 0.05</text>
+<polyline class="ln" points="66.00,103.09 100.74,95.11 135.47,105.13 170.21,113.24 204.95,111.68 239.68,162.54 274.42,151.70 309.16,166.82 343.89,173.23 378.63,186.89 413.37,188.71 448.11,187.17 482.84,186.42 517.58,195.67 552.32,174.06 587.05,193.89 621.79,201.00 656.53,153.32 691.26,179.94 726.00,207.80" stroke="var(--s1)"/>
+<polyline class="ln" points="66.00,125.78 100.74,109.78 135.47,131.28 170.21,120.20 204.95,123.55 239.68,150.36 274.42,148.24 309.16,165.31 343.89,140.89 378.63,142.57 413.37,176.20 448.11,174.59 482.84,166.06 517.58,187.15 552.32,188.36 587.05,186.05 621.79,187.53 656.53,205.92 691.26,230.50 726.00,237.90" stroke="var(--s2)"/>
+<polyline class="ln" points="66.00,291.27 100.74,286.89 135.47,220.36 170.21,247.48 204.95,202.60 239.68,190.32 274.42,167.00 309.16,144.53 343.89,220.58 378.63,175.52 413.37,135.42 448.11,121.75 482.84,156.62 517.58,164.55 552.32,186.33 587.05,238.32 621.79,276.75 656.53,249.57 691.26,302.15 726.00,305.96" stroke="var(--s3)"/>
+<circle cx="726.00" cy="207.80" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="237.90" r="4" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="305.96" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>
+<text class="s" x="373.00" y="430.00" text-anchor="middle">question number</text>
+<line class="ln" x1="20.00" y1="454.00" x2="38.00" y2="454.00" stroke="var(--s1)"/>
+<text class="l" x="46.00" y="458.00">adaptive</text>
+<line class="ln" x1="120.80" y1="454.00" x2="138.80" y2="454.00" stroke="var(--s2)"/>
+<text class="l" x="146.80" y="458.00">random</text>
+<line class="ln" x1="208.40" y1="454.00" x2="226.40" y2="454.00" stroke="var(--s3)"/>
+<text class="l" x="234.40" y="458.00">fixed</text>
+</svg>

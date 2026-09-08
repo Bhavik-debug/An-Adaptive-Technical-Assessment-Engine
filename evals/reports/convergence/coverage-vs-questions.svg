@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.00 492.00" width="746.00" height="492.00" role="img" aria-label="Subtopics measured against questions asked">
+<title>Subtopics measured against questions asked</title>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;}
+@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+text{font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;fill:var(--ink-2)}
+.t{font-size:15px;font-weight:600;fill:var(--ink)}
+.s{font-size:12px;fill:var(--muted)}
+.p{font-size:12px;font-weight:600;fill:var(--ink)}
+.a{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.l{font-size:12px;fill:var(--ink-2)}
+.v{font-size:11px;font-weight:600;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+.g{stroke:var(--grid);stroke-width:1;fill:none}
+.x{stroke:var(--axis);stroke-width:1;fill:none}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+</style>
+<rect width="746.00" height="492.00" fill="var(--surface)"/>
+<text class="t" x="20.00" y="28.00">Subtopics measured against questions asked</text>
+<text class="s" x="20.00" y="48.00">Blueprint has 6 subtopics. Synthetic environment — see docs/simulation.md.</text>
+<text class="s" x="20.00" y="68.00">subtopics with at least one item</text>
+<line class="g" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="58.00" y="387.50" text-anchor="end">0</text>
+<line class="g" x1="66.00" y1="284.00" x2="726.00" y2="284.00"/>
+<text class="a" x="58.00" y="287.50" text-anchor="end">2</text>
+<line class="g" x1="66.00" y1="184.00" x2="726.00" y2="184.00"/>
+<text class="a" x="58.00" y="187.50" text-anchor="end">4</text>
+<line class="g" x1="66.00" y1="84.00" x2="726.00" y2="84.00"/>
+<text class="a" x="58.00" y="87.50" text-anchor="end">6</text>
+<line class="x" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="66.00" y="400.00" text-anchor="middle">0</text>
+<text class="a" x="132.00" y="400.00" text-anchor="middle">2</text>
+<text class="a" x="198.00" y="400.00" text-anchor="middle">4</text>
+<text class="a" x="264.00" y="400.00" text-anchor="middle">6</text>
+<text class="a" x="330.00" y="400.00" text-anchor="middle">8</text>
+<text class="a" x="396.00" y="400.00" text-anchor="middle">10</text>
+<text class="a" x="462.00" y="400.00" text-anchor="middle">12</text>
+<text class="a" x="528.00" y="400.00" text-anchor="middle">14</text>
+<text class="a" x="594.00" y="400.00" text-anchor="middle">16</text>
+<text class="a" x="660.00" y="400.00" text-anchor="middle">18</text>
+<text class="a" x="726.00" y="400.00" text-anchor="middle">20</text>
+<line x1="66.00" y1="84.00" x2="726.00" y2="84.00" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="a" x="724.00" y="79.00" text-anchor="end">all 6</text>
+<polyline class="ln" points="66.00,384.00 99.00,334.00 132.00,289.50 165.00,262.50 198.00,240.75 231.00,228.00 264.00,217.75 297.00,209.50 330.00,202.50 363.00,194.00 396.00,186.75 429.00,179.00 462.00,170.50 495.00,165.50 528.00,161.50 561.00,155.25 594.00,152.75 627.00,149.00 660.00,148.75 693.00,148.50 726.00,148.50" stroke="var(--s1)"/>
+<polyline class="ln" points="66.00,384.00 99.00,334.00 132.00,292.75 165.00,260.25 198.00,229.75 231.00,204.00 264.00,185.50 297.00,168.25 330.00,152.50 363.00,142.00 396.00,130.25 429.00,122.75 462.00,115.25 495.00,109.00 528.00,106.00 561.00,101.50 594.00,98.25 627.00,95.75 660.00,93.25 693.00,92.75 726.00,91.75" stroke="var(--s2)"/>
+<polyline class="ln" points="66.00,384.00 99.00,334.00 132.00,284.00 165.00,234.00 198.00,191.25 231.00,149.25 264.00,149.25 297.00,149.25 330.00,149.25 363.00,149.25 396.00,149.25 429.00,149.25 462.00,149.25 495.00,149.25 528.00,108.75 561.00,108.75 594.00,108.75 627.00,108.75 660.00,108.75 693.00,108.75 726.00,108.75" stroke="var(--s3)"/>
+<circle cx="726.00" cy="148.50" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="91.75" r="4" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="108.75" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>
+<text class="v" x="717.00" y="139.50" text-anchor="end">4.71</text>
+<text class="v" x="717.00" y="82.75" text-anchor="end">5.84</text>
+<text class="v" x="717.00" y="99.75" text-anchor="end">5.50</text>
+<text class="s" x="373.00" y="430.00" text-anchor="middle">questions asked</text>
+<line class="ln" x1="20.00" y1="454.00" x2="38.00" y2="454.00" stroke="var(--s1)"/>
+<text class="l" x="46.00" y="458.00">adaptive</text>
+<line class="ln" x1="120.80" y1="454.00" x2="138.80" y2="454.00" stroke="var(--s2)"/>
+<text class="l" x="146.80" y="458.00">random</text>
+<line class="ln" x1="208.40" y1="454.00" x2="226.40" y2="454.00" stroke="var(--s3)"/>
+<text class="l" x="234.40" y="458.00">fixed</text>
+</svg>

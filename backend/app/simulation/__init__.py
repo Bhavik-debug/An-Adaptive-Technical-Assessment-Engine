@@ -48,14 +48,39 @@ is what a real grader would return.  A strategy is handed a ``SelectionState``
 and the bank; neither holds a reference to a candidate, so no policy can reach
 the answer key even by accident.
 
+Day 14 - the convergence analysis
+---------------------------------
+
+Day 13 answered *where the error ends*.  Day 14 answers *how it got there*,
+from the same runs::
+
+    run_experiment          Day 13, unchanged
+            |
+            |  SessionResult.trajectory - one TrajectoryStep per turn
+            v
+    convergence.py          bands, reach curves, stability, stopping profile
+            |
+    figures.py              which charts, and what each is for
+            |
+    charts.py               deterministic SVG - no plotting library
+            |
+            v
+    evals/reports/convergence.md  +  evals/reports/convergence/*.svg
+
+The only change Day 14 made to the Day 13 loop was to record what the engine
+believed after each turn.  That record consumes no randomness and is read by no
+policy, and Day 13's committed report regenerates byte-identically - which is
+the check that the analysis did not perturb the thing it analyses.  Day 14
+introduced **no new convergence threshold**: both criteria are Day 13's.
+
 Deferred, deliberately
 ----------------------
 
-* **Day 14** - the convergence *chart*, error bands, and the reporting system
-  around them.  This package computes the curve and prints eight numbers of it;
-  it does not plot.
-* **Day 15** - the blueprint builder.  ``config.split_budget_by_jd`` divides an
-  already-given budget by already-given JD weights, and must not grow.
+* **Day 15** - the blueprint builder, now built as :mod:`app.blueprint`.
+  ``config.split_budget_by_jd`` keeps its name and its one-division contract and
+  delegates the arithmetic to ``app.blueprint.allocate_quotas``, so there is a
+  single largest-remainder implementation.  The Day 13 report regenerates
+  byte-identically across that change.
 * Difficulty calibration from observed responses (plan section 5.11), grading,
   follow-ups, session persistence, and anything served over HTTP.
 """
@@ -68,11 +93,32 @@ from app.simulation.config import (
     ExperimentConfig,
     split_budget_by_jd,
 )
+from app.simulation.convergence import (
+    Band,
+    CoverageBin,
+    StabilitySummary,
+    StoppingProfile,
+    at_or_below_curve,
+    coverage_band,
+    coverage_vs_error,
+    mae_band,
+    reach_curve,
+    representative_candidates,
+    rmse_band,
+    stability,
+    stopping_by_items,
+    theta_series,
+)
 from app.simulation.environment import (
     SyntheticCandidate,
     SyntheticEnvironment,
     build_environment,
     derive_seed,
+)
+from app.simulation.figures import (
+    Figure,
+    build_figures,
+    write_figures,
 )
 from app.simulation.metrics import (
     CensoredDistribution,
@@ -90,6 +136,7 @@ from app.simulation.runner import (
     ExperimentResult,
     SessionResult,
     StrategySummary,
+    TrajectoryStep,
     ablation_variants,
     run_ablation,
     run_experiment,
@@ -109,38 +156,56 @@ from app.simulation.strategies import (
 
 __all__ = [
     "ADAPTIVE",
-    "EXTENDED_CONFIG",
-    "FIXED",
-    "MAIN_CONFIG",
-    "RANDOM",
-    "STRATEGY_ORDER",
     "AblationResult",
     "AdaptiveStrategy",
+    "Band",
     "CensoredDistribution",
+    "CoverageBin",
     "Distribution",
+    "EXTENDED_CONFIG",
     "ExperimentConfig",
     "ExperimentResult",
+    "FIXED",
+    "Figure",
     "FixedStrategy",
+    "MAIN_CONFIG",
+    "RANDOM",
     "RandomStrategy",
+    "STRATEGY_ORDER",
     "SessionResult",
+    "StabilitySummary",
+    "StoppingProfile",
     "Strategy",
     "StrategySummary",
     "SyntheticCandidate",
     "SyntheticEnvironment",
+    "TrajectoryStep",
     "ablation_variants",
     "absolute_errors",
+    "at_or_below_curve",
     "build_environment",
+    "build_figures",
     "build_strategies",
+    "coverage_band",
+    "coverage_vs_error",
     "derive_seed",
     "expected_score",
     "graded_score",
     "mae",
+    "mae_band",
+    "reach_curve",
+    "representative_candidates",
     "rmse",
+    "rmse_band",
     "run_ablation",
     "run_experiment",
     "run_session",
     "split_budget_by_jd",
+    "stability",
+    "stopping_by_items",
     "summarise",
     "summarise_censored",
+    "theta_series",
     "worst_topic_rd",
+    "write_figures",
 ]

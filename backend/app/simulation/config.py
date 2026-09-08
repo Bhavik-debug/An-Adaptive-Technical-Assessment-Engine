@@ -48,6 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from app.ability import RD_MAX, THETA_MAX, THETA_MIN
+from app.blueprint.quotas import allocate_quotas
 
 # ---------------------------------------------------------------------------
 # the taxonomy
@@ -258,30 +259,38 @@ def split_budget_by_jd(
     """Divide an item budget across topics in proportion to their JD weight.
 
     ``{algorithms: 0.9, databases: 0.7, systems: 0.5}`` and a budget of 20 give
-    ``{algorithms: 9, databases: 7, systems: 4}``.  Largest-remainder rounding,
+    ``{algorithms: 8, databases: 7, systems: 5}``.  Largest-remainder rounding,
     so the quotas sum to exactly the budget and no topic is silently starved by
-    repeated flooring.
+    repeated flooring: the exact shares are 8.57, 6.67 and 4.76, and the two
+    spare items go to the two largest *fractions* (0.76 and 0.67) rather than to
+    the largest share.  That is why the lightest topic gains one and the heaviest
+    does not - the counter-intuitive case, and the reason the method is worth
+    naming.
 
-    **This is not the Day 15 blueprint builder and must not grow into one.**
-    Day 15 turns *role + level + duration* into JD weights, an item budget and a
-    time budget; this takes all three as given and does one division, because
-    Day 12's hard topic cap needs a quota mapping and there is nothing yet to
-    produce one.  Ties are broken by topic name so the result is deterministic.
+    *(This worked example previously read ``{9, 7, 4}``, which no version of the
+    code has ever produced; the committed simulation report has said 8/7/5 since
+    Day 13.  A docstring, not a behaviour, was wrong - see Day 15's entry.)*
+
+    **The division now lives in Day 15's blueprint builder, and this delegates
+    to it.**  When Day 13 was written the comment here said "this is not the
+    Day 15 blueprint builder and must not grow into one", because Day 12's hard
+    topic cap needed a quota mapping and nothing existed to produce one.  Day 15
+    exists; keeping a second largest-remainder implementation alive so that the
+    simulation could avoid importing it would be the duplication that comment was
+    guarding against, only inverted.
+
+    What this function still is: the *simulation's* name for the operation, kept
+    so ``ExperimentConfig.quotas`` and Day 13's public API read the same as they
+    did.  It takes an item budget and JD weights as given and does one division.
+    It does **not** grow floors, caps, budgets or levels - those are
+    :func:`app.blueprint.build_blueprint`'s, and a test pins that this path
+    returns exactly what Day 13's own implementation returned.
+
+    ``ValueError`` is preserved for the two rejected inputs: ``BlueprintError``
+    is a ``ValueError``, so every existing caller and test still catches what it
+    caught before.
     """
-    if item_budget < 0:
-        raise ValueError(f"item_budget must not be negative, got {item_budget!r}")
-    total = sum(jd_weights.values())
-    if total <= 0.0:
-        raise ValueError("jd_weights must not sum to zero")
-
-    exact = {topic: item_budget * weight / total for topic, weight in jd_weights.items()}
-    quotas = {topic: int(value) for topic, value in exact.items()}
-    remaining = item_budget - sum(quotas.values())
-    # Largest remainder first; topic name breaks ties so two runs agree.
-    order = sorted(exact, key=lambda topic: (-(exact[topic] - quotas[topic]), topic))
-    for topic in order[:remaining]:
-        quotas[topic] += 1
-    return quotas
+    return allocate_quotas(item_budget, jd_weights)
 
 
 @dataclass(frozen=True, slots=True)

@@ -597,8 +597,10 @@ hard constraints (SQL)  →  weighted scoring  →  ε-greedy choice
    cost. Information is the largest single share because measurement is the
    point, and not the whole thing because a pure information-maximiser asks
    twelve questions about one subtopic and ignores the job description.
-   **These six weights are design choices, not measured optima** — the ablation
-   that could justify them is Day 13 and has not been run.
+   **These six weights are design choices, not measured optima.** Day 13 ran the
+   ablation that could justify them and it supports exactly one of the six —
+   removing the information term is the largest degradation. It is reported, not
+   acted on: the weights are unchanged.
 3. **ε = 0.10.** 90% argmax; 10% uniform over the top 5. Exploration keeps the
    question order from being memorisable and generates the off-policy data
    difficulty recalibration will need. The generator is injectable, so a seeded
@@ -608,10 +610,45 @@ And the stopping rule: stop when every required topic reaches `RD < 0.40`, or th
 item budget is spent, or the time budget is spent, or three consecutive answers
 moved `θ` by less than 0.05.
 
+**Days 13–14 — the evidence.** Two layers of design are not evidence that the
+design works, so `app/simulation/` puts 200 synthetic candidates with hidden
+ground-truth θ through all three policies — the real Day 12 selector, uniform
+selection over the same eligible pool, and a fixed paper — on a controlled
+synthetic bank. Zero API tokens, no database, no network.
+
+The results do not all favour the design, and are reported that way. Adaptive
+measures the subtopics it investigates far more precisely (MAE(seen) 0.333
+against random's 0.415) and matches difficulty far better (`|b − θ|` 0.136
+against 0.756), and it covers fewer subtopics (4.71 of 6 against 5.84) — which
+on the all-subtopic MAE random then edges, 0.422 to 0.433. Day 14's curves show
+the trade in motion: **adaptive is ahead for the first eight questions and
+behind from the ninth**, as the coverage deficit compounds. Every number is a
+statement about a synthetic world and about nothing else.
+
+**Day 15 — the blueprint.** Days 11–14 all took their *requirements* from
+somewhere else: a test fixture, an experiment config, a literal in a docstring.
+`app/blueprint/` is the producer. It turns role + level + duration + JD weights
+into topic quotas, an item budget and a time budget, validates that the
+combination is actually executable, and hands Day 12 exactly the arguments it
+already declared — so integration was a constructor call, not a refactor.
+
+```
+AssessmentSpec → build_blueprint → Blueprint → SelectionState → choose_next
+                                        └────────────────────→ should_stop
+```
+
+The item budget comes from the committed bank's own pacing (median item 330 s),
+which produces a smaller and more honest number than the simulation's synthetic
+one: **a 45-minute standard assessment is 8 questions.** `app.selection` does not
+import `app.blueprint`; the arrow points one way.
+
 [`docs/adaptive-selection.md`](docs/adaptive-selection.md) explains Fisher
-information, the objective and the stopping rule from scratch. Nothing in either
-layer is exposed over HTTP; the interview FSM and the blueprint builder come
-later.
+information, the objective and the stopping rule from scratch;
+[`docs/simulation.md`](docs/simulation.md) the experiment;
+[`docs/convergence.md`](docs/convergence.md) the convergence analysis and its
+figures; [`docs/blueprint.md`](docs/blueprint.md) the assessment contract.
+Nothing in any of these layers is exposed over HTTP — the interview FSM, the
+session API and resume/JD parsing come later.
 
 ## Database & migrations
 
@@ -646,6 +683,11 @@ backend/app/          FastAPI modular monolith
   ability.py          θ/RD ability model: 2PL, the Elo update with its K-factor
                       decomposition, precision-weighted subtopic → topic → domain
                       aggregation — pure, no I/O
+  blueprint/          what assessment do we need? — docs/blueprint.md
+    spec.py           AssessmentSpec + TopicRequest, and the calibration tables
+    quotas.py         largest-remainder budget division, with floors and caps
+    blueprint.py      the validated contract, its serialisation and its adapters
+    builder.py        AssessmentSpec -> Blueprint, the one place they meet
   selection/          adaptive item selection — docs/adaptive-selection.md
     information.py    Fisher information a²·p·(1-p), and p(1-p)/0.25 for scoring
     state.py          what the policy reads: θ/RD, quotas, JD, resume, clock
@@ -658,9 +700,12 @@ backend/app/          FastAPI modular monolith
     environment.py    192 synthetic questions + 200 candidates with hidden θ
     response.py       the Beta response model over Day 11's 2PL
     strategies.py     adaptive (the real Day 12 selector), random, fixed
-    runner.py         the session loop, the experiment, the weight ablation
+    runner.py         the session loop, the per-turn record, the ablation
     metrics.py        error, convergence, censoring, aggregation — pure
-    report.py         the result tables
+    convergence.py    curves, reach rates, stability, stopping profile — pure
+    charts.py         a deterministic SVG writer; no plotting library
+    figures.py        which charts Day 14 draws, and what each is for
+    report.py         the result tables and the two committed reports
   models/             SQLAlchemy table definitions
   api/health.py       liveness + readiness
   api/auth.py         register / login / refresh / logout / me
@@ -707,6 +752,7 @@ backend/app/          FastAPI modular monolith
     report.py         formats an EvalReport into tables
 evals/datasets/       THE GROUND TRUTH: 40 labelled retrieval queries
 evals/reports/        committed ablation + simulation results, regenerated by scripts
+evals/reports/convergence/  the Day 14 figures, as deterministic SVG
 data/question-bank/   THE DATASET: taxonomy.json + one .jsonl per domain
 backend/fixtures/llm/ recorded model responses the stub replays
 backend/fixtures/recording_plans/  what to record, as JSON — input, never output
@@ -716,6 +762,7 @@ backend/scripts/      record_llm_fixture{,s}.py — the only things that spend q
                       search_questions.py — drive hybrid retrieval by hand
                       run_retrieval_eval.py — the four-row ablation
                       run_selection_simulation.py — CAT vs random vs fixed
+                      run_convergence_analysis.py — the convergence figures
 backend/migrations/   Alembic environment and versions
 backend/tests/        pytest (unit = offline, integration = real PG+Redis,
                       smoke = opt-in, hits a real provider)
@@ -728,8 +775,12 @@ docs/reranking.md     cross-encoders, the two-stage design, score semantics, fal
 docs/evaluation.md    ground truth, Recall@K, MRR, nDCG, the ablation — from scratch
 docs/adaptive-selection.md  Fisher information, the selection objective, the hard
                       constraints, ε-greedy and the stopping rule — from scratch
+docs/blueprint.md     the Day 15 contract: role + level + duration -> quotas and
+                      budgets, its validation rules, and how it plugs into Day 12
 docs/simulation.md    the Day 13 experiment: synthetic candidates, the Beta response
                       model, CAT vs random vs fixed, and the weight ablation
+docs/convergence.md   the Day 14 analysis: how θ̂ approaches the truth turn by turn,
+                      what each figure means, and the coverage/accuracy crossover
 docs/adr/             architecture decision records
 .github/workflows/    ci.yml — lint, format, types, tests, secret scan
 .gitleaks.toml        secret-scanner allowlist (documented placeholders only)

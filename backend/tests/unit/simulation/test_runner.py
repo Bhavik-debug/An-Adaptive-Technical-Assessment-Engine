@@ -148,6 +148,102 @@ class TestOneSession:
         assert first == second
 
 
+class TestTrajectoryRecord:
+    """Day 14's per-turn record.
+
+    It exists to be analysed later, so what matters is that it is a faithful
+    log of the session that produced it - every field lining up with the
+    session's own summary - rather than a second, drifting account of it.
+    """
+
+    def sessions(self):
+        return [
+            run_session(ENV, candidate, policy)
+            for policy in POLICIES.values()
+            for candidate in ENV.candidates
+        ]
+
+    def test_there_is_one_step_per_answer_plus_the_cold_start(self):
+        for session in self.sessions():
+            assert len(session.trajectory) == session.items_asked + 1
+            assert [step.items_asked for step in session.trajectory] == list(
+                range(session.items_asked + 1)
+            )
+
+    def test_the_cold_start_records_no_answer(self):
+        """Not a zero.  "No question was asked" and "a question moved nothing"
+        are different facts, and the stability analysis separates them."""
+        for session in self.sessions():
+            first = session.trajectory[0]
+            assert first.item_id is None
+            assert first.subtopic_key is None
+            assert first.topic_key is None
+            assert first.score is None
+            assert first.delta_theta is None
+            assert first.subtopics_measured == 0
+
+    def test_every_later_step_names_the_item_that_produced_it(self):
+        by_id = ENV.items_by_id
+        for session in self.sessions():
+            for index, step in enumerate(session.trajectory[1:]):
+                assert step.item_id == session.asked_ids[index]
+                item = by_id[str(step.item_id)]
+                assert step.subtopic_key == item.subtopic_key
+                assert step.topic_key == item.topic_key
+                assert step.score is not None and 0.0 <= step.score <= 1.0
+                assert step.delta_theta is not None and math.isfinite(step.delta_theta)
+
+    def test_every_step_holds_an_opinion_about_every_blueprint_subtopic(self):
+        for session in self.sessions():
+            for step in session.trajectory:
+                assert set(step.theta) == set(TINY.subtopics)
+                assert set(step.rd) == set(TINY.subtopics)
+
+    def test_coverage_only_ever_grows_and_matches_the_items_asked(self):
+        for session in self.sessions():
+            seen: set[str] = set()
+            for index, step in enumerate(session.trajectory):
+                if step.subtopic_key is not None:
+                    seen.add(step.subtopic_key)
+                assert step.subtopics_measured == len(seen)
+                if index:
+                    assert (
+                        step.subtopics_measured >= session.trajectory[index - 1].subtopics_measured
+                    )
+            assert session.trajectory[-1].subtopics_measured == session.subtopics_measured
+
+    def test_the_last_step_is_the_session_summary(self):
+        for session in self.sessions():
+            final = session.trajectory[-1]
+            assert final.mae == pytest.approx(session.mae)
+            assert final.rmse == pytest.approx(session.rmse)
+            assert dict(final.theta) == dict(session.final_theta)
+            assert dict(final.rd) == dict(session.final_rd)
+
+    def test_the_day_13_trajectories_are_views_onto_the_same_record(self):
+        for session in self.sessions():
+            assert session.mae_trajectory == tuple(s.mae for s in session.trajectory)
+            assert session.rmse_trajectory == tuple(s.rmse for s in session.trajectory)
+            assert session.rd_trajectory == tuple(s.worst_topic_rd for s in session.trajectory)
+            assert session.coverage_trajectory == tuple(
+                float(s.subtopics_measured) for s in session.trajectory
+            )
+
+    def test_recording_consumed_no_randomness(self):
+        """The record is written from state the policy already had.
+
+        If snapshotting had drawn from either generator, the session would
+        differ from the one Day 13 ran - so this asserts the property the
+        committed Day 13 report depends on, at unit scale.
+        """
+        first = run_session(ENV, ENV.candidates[0], POLICIES[ADAPTIVE])
+        second = run_session(ENV, ENV.candidates[0], POLICIES[ADAPTIVE])
+        assert first.asked_ids == second.asked_ids
+        assert [dataclasses.astuple(s) for s in first.trajectory] == [
+            dataclasses.astuple(s) for s in second.trajectory
+        ]
+
+
 class TestFairness:
     def test_every_policy_sees_the_same_bank_and_the_same_people(self):
         result = run_all()

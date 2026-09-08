@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.00 492.00" width="746.00" height="492.00" role="img" aria-label="Mean RMSE against questions asked">
+<title>Mean RMSE against questions asked</title>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;}
+@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+text{font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;fill:var(--ink-2)}
+.t{font-size:15px;font-weight:600;fill:var(--ink)}
+.s{font-size:12px;fill:var(--muted)}
+.p{font-size:12px;font-weight:600;fill:var(--ink)}
+.a{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.l{font-size:12px;fill:var(--ink-2)}
+.v{font-size:11px;font-weight:600;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+.g{stroke:var(--grid);stroke-width:1;fill:none}
+.x{stroke:var(--axis);stroke-width:1;fill:none}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+</style>
+<rect width="746.00" height="492.00" fill="var(--surface)"/>
+<text class="t" x="20.00" y="28.00">Mean RMSE against questions asked</text>
+<text class="s" x="20.00" y="48.00">200 synthetic candidates, 20-item budget. Synthetic environment — see docs/simulation.md.</text>
+<text class="s" x="20.00" y="68.00">RMSE across all 6 subtopics (θ units)</text>
+<line class="g" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="58.00" y="387.50" text-anchor="end">0.00</text>
+<line class="g" x1="66.00" y1="324.00" x2="726.00" y2="324.00"/>
+<text class="a" x="58.00" y="327.50" text-anchor="end">0.20</text>
+<line class="g" x1="66.00" y1="264.00" x2="726.00" y2="264.00"/>
+<text class="a" x="58.00" y="267.50" text-anchor="end">0.40</text>
+<line class="g" x1="66.00" y1="204.00" x2="726.00" y2="204.00"/>
+<text class="a" x="58.00" y="207.50" text-anchor="end">0.60</text>
+<line class="g" x1="66.00" y1="144.00" x2="726.00" y2="144.00"/>
+<text class="a" x="58.00" y="147.50" text-anchor="end">0.80</text>
+<line class="g" x1="66.00" y1="84.00" x2="726.00" y2="84.00"/>
+<text class="a" x="58.00" y="87.50" text-anchor="end">1.00</text>
+<line class="x" x1="66.00" y1="384.00" x2="726.00" y2="384.00"/>
+<text class="a" x="66.00" y="400.00" text-anchor="middle">0</text>
+<text class="a" x="132.00" y="400.00" text-anchor="middle">2</text>
+<text class="a" x="198.00" y="400.00" text-anchor="middle">4</text>
+<text class="a" x="264.00" y="400.00" text-anchor="middle">6</text>
+<text class="a" x="330.00" y="400.00" text-anchor="middle">8</text>
+<text class="a" x="396.00" y="400.00" text-anchor="middle">10</text>
+<text class="a" x="462.00" y="400.00" text-anchor="middle">12</text>
+<text class="a" x="528.00" y="400.00" text-anchor="middle">14</text>
+<text class="a" x="594.00" y="400.00" text-anchor="middle">16</text>
+<text class="a" x="660.00" y="400.00" text-anchor="middle">18</text>
+<text class="a" x="726.00" y="400.00" text-anchor="middle">20</text>
+<polyline class="ln" points="66.00,126.66 99.00,134.16 132.00,142.56 165.00,148.79 198.00,155.02 231.00,161.59 264.00,165.47 297.00,170.51 330.00,175.02 363.00,179.53 396.00,183.05 429.00,187.09 462.00,190.85 495.00,194.20 528.00,197.66 561.00,201.78 594.00,205.24 627.00,208.54 660.00,215.15 693.00,219.66 726.00,222.45" stroke="var(--s1)"/>
+<polyline class="ln" points="66.00,126.66 99.00,132.57 132.00,139.10 165.00,145.76 198.00,152.51 231.00,159.86 264.00,165.67 297.00,171.15 330.00,176.48 363.00,182.70 396.00,189.44 429.00,194.78 462.00,200.04 495.00,205.09 528.00,209.32 561.00,213.66 594.00,218.18 627.00,222.96 660.00,227.32 693.00,230.33 726.00,232.77" stroke="var(--s2)"/>
+<polyline class="ln" points="66.00,126.66 99.00,129.14 132.00,131.94 165.00,135.64 198.00,139.17 231.00,144.21 264.00,148.33 297.00,153.39 330.00,159.82 363.00,161.67 396.00,166.41 429.00,172.94 462.00,180.95 495.00,186.89 528.00,194.03 561.00,198.70 594.00,201.62 627.00,203.85 660.00,207.56 693.00,209.61 726.00,211.60" stroke="var(--s3)"/>
+<circle cx="726.00" cy="222.45" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="232.77" r="4" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>
+<circle cx="726.00" cy="211.60" r="4" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>
+<text class="s" x="373.00" y="430.00" text-anchor="middle">questions asked</text>
+<line class="ln" x1="20.00" y1="454.00" x2="38.00" y2="454.00" stroke="var(--s1)"/>
+<text class="l" x="46.00" y="458.00">adaptive</text>
+<line class="ln" x1="120.80" y1="454.00" x2="138.80" y2="454.00" stroke="var(--s2)"/>
+<text class="l" x="146.80" y="458.00">random</text>
+<line class="ln" x1="208.40" y1="454.00" x2="226.40" y2="454.00" stroke="var(--s3)"/>
+<text class="l" x="234.40" y="458.00">fixed</text>
+</svg>

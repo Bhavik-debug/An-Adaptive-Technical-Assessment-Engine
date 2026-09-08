@@ -416,6 +416,11 @@ decisive.
 3. **On the all-subtopic MAE the two are close, and random edges it**: 0.422
    against 0.433. The precision gain is slightly more than cancelled by the
    coverage loss.
+
+   *Day 14 adds the shape behind this endpoint and does not change it: adaptive
+   is ahead on this metric for the first eight questions and behind from the
+   ninth, as random's coverage lead compounds. See
+   [`docs/convergence.md`](convergence.md) §6.*
 4. **Against fixed, adaptive wins on accuracy and difficulty matching and loses
    on breadth.** Not on every metric — that claim would be false:
 
@@ -605,11 +610,21 @@ experiment, not just on a component.
 
 ## 11. What Day 13 does not do
 
-- **No chart.** The convergence plot with error bands is Day 14. This computes the
-  curve and prints eight numbers of it; it does not plot.
-- **No blueprint builder.** `split_budget_by_jd` divides an already-given budget
-  by already-given JD weights. Turning role + level + duration into those inputs
-  is Day 15.
+- **No chart.** ✅ *Done on Day 14* — see [`docs/convergence.md`](convergence.md).
+  Day 13 computes the curve and prints eight numbers of it; it does not plot.
+  Day 14 draws it, adds the spread band, and analyses the shape rather than the
+  endpoint. It changed nothing in this package except to record what the engine
+  believed after each turn, and
+  [`evals/reports/selection_simulation.md`](../evals/reports/selection_simulation.md)
+  regenerates byte-identically.
+- **No blueprint builder.** ✅ *Done on Day 15* — see
+  [`docs/blueprint.md`](blueprint.md). `split_budget_by_jd` keeps its name and its
+  one-division contract and now delegates the arithmetic to
+  `app.blueprint.allocate_quotas`, so there is a single largest-remainder
+  implementation; the committed report regenerates byte-identically across that
+  change. Day 15 also corrected this function's worked example, which claimed
+  `{9, 7, 4}` where the code has always produced `{8, 7, 5}` — a docstring, not a
+  behaviour.
 - **No weight changes.** See §9.
 - **No difficulty calibration.** Fitting `b` from observed responses is plan §5.11
   — and is what ε-greedy's exploration data is *for*.

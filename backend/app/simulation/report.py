@@ -14,13 +14,26 @@ import math
 from collections.abc import Sequence
 
 from app.simulation.config import ExperimentConfig
+from app.simulation.convergence import coverage_vs_error, stability
+from app.simulation.figures import Figure
+from app.simulation.metrics import default_steps
 from app.simulation.runner import AblationResult, ExperimentResult, StrategySummary
 
 
 def _table(header: Sequence[str], rows: Sequence[Sequence[str]], *, markdown: bool) -> str:
     if markdown:
-        lines = ["| " + " | ".join(header) + " |", "|" + "|".join(["---"] * len(header)) + "|"]
-        lines += ["| " + " | ".join(row) + " |" for row in rows]
+        # A pipe inside a cell ends the cell, so `|dtheta|` would silently split
+        # one column into three and misalign every row after it.  Escaping is
+        # done here rather than at each call site because a formatter that
+        # corrupts a table on some inputs is a formatter that will do it again.
+        def cell(text: str) -> str:
+            return text.replace("|", "\\|")
+
+        lines = [
+            "| " + " | ".join(cell(h) for h in header) + " |",
+            "|" + "|".join(["---"] * len(header)) + "|",
+        ]
+        lines += ["| " + " | ".join(cell(value) for value in row) + " |" for row in rows]
         return "\n".join(lines)
     widths = [max(len(header[i]), *(len(r[i]) for r in rows)) for i in range(len(header))]
     out = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(header))]
@@ -133,12 +146,8 @@ def curve_table(
     The numbers behind Day 14's chart, and deliberately only the numbers: this
     is a text table of eight columns, not a plotting system.
     """
-    budget = result.config.item_budget
     if steps is None:
-        stride = max(1, budget // 6)
-        # The final column is always the budget itself: a table that stopped at
-        # 18 of 20 would omit the number every other table in the report quotes.
-        steps = sorted({0, *range(stride, budget + 1, stride), budget})
+        steps = default_steps(result.config.item_budget)
     header = ["policy", *(f"@{n}" for n in steps)]
     rows = []
     for s in result.summaries:
@@ -316,6 +325,147 @@ def markdown_report(
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Day 14 - convergence and its figures
+# ---------------------------------------------------------------------------
+
+
+def coverage_error_table(result: ExperimentResult, *, markdown: bool = False) -> str:
+    """Final error binned by how many subtopics a session touched.
+
+    The arithmetic behind Day 13's central trade-off.  **Not a controlled
+    comparison**: sessions land in a bin by what the policy did, so a bin also
+    selects on candidate, session length and luck.  It describes an
+    association and establishes no cause.
+    """
+    header = ["policy", "subtopics", "sessions", "MAE", "MAE(seen)"]
+    rows = []
+    for summary in result.summaries:
+        for entry in coverage_vs_error(result.sessions_for(summary.strategy)):
+            rows.append(
+                [
+                    summary.strategy,
+                    str(entry.subtopics_measured),
+                    str(entry.n_sessions),
+                    f"{entry.mean_mae:.3f}",
+                    "-" if entry.mean_mae_measured is None else f"{entry.mean_mae_measured:.3f}",
+                ]
+            )
+    return _table(header, rows, markdown=markdown)
+
+
+def stability_table(result: ExperimentResult, *, markdown: bool = False) -> str:
+    """Whether the estimate settles, and whether it oscillates while doing so."""
+    header = [
+        "policy",
+        "mean abs(dtheta)",
+        "last 5 answers",
+        "reversal rate",
+        "turns where MAE rose",
+    ]
+    rows = []
+    for summary in result.summaries:
+        entry = stability(result.sessions_for(summary.strategy))
+        rows.append(
+            [
+                summary.strategy,
+                f"{entry.mean_abs_delta:.3f}",
+                f"{entry.late_mean_abs_delta:.3f}",
+                f"{entry.reversal_rate:.1%}",
+                f"{entry.mae_increase_rate:.1%}",
+            ]
+        )
+    return _table(header, rows, markdown=markdown)
+
+
+def figure_table(figure: Figure, *, markdown: bool = True) -> str:
+    """A figure's own numbers - the table view of a colour-coded chart."""
+    if not figure.table:  # pragma: no cover - every figure ships a table
+        return ""
+    header, *rows = figure.table
+    return _table(list(header), [list(row) for row in rows], markdown=markdown)
+
+
+def convergence_report(
+    result: ExperimentResult,
+    figures: Sequence[Figure],
+    *,
+    figure_dir: str = "figures",
+) -> str:
+    """Day 14's committed artefact: the figures, their numbers, and the caveats.
+
+    Interpretation lives in ``docs/convergence.md``; this file is the
+    measurement, regenerated rather than edited.  Every figure appears with the
+    table it was drawn from, so nothing here is legible only in colour.
+    """
+    md = True
+    lines = [
+        "# Convergence of the ability estimate — adaptive vs random vs fixed",
+        "",
+        "*Generated by `python backend/scripts/run_convergence_analysis.py --write-report`.*",
+        "*Plan §8.6, Day 14. Regenerate rather than edit.*",
+        "",
+        "**These are results about a synthetic environment.** They describe how the",
+        "estimate approaches a ground truth this simulator generated, under the",
+        "assumptions listed below. They say nothing about real candidates, real",
+        "questions, real interviews or hiring validity — see `docs/simulation.md`,",
+        '"What this cannot tell us".',
+        "",
+        "**No claim of statistical significance is made anywhere in this report.**",
+        "No hypothesis test was run. The differences between the policies are small",
+        "relative to the spread across candidates, and the spread figure is included",
+        "so that this is visible rather than merely stated.",
+        "",
+        "## Configuration",
+        "",
+        config_block(result.config, markdown=md),
+        "",
+        "## Convergence criteria",
+        "",
+        "Both are Day 13's, unchanged, and no new threshold was introduced:",
+        "",
+        f"- **MAE ≤ {result.config.convergence_mae}** — a design choice, and an arbitrary",
+        "  one; it is reported beside the full error curve so a reader who dislikes it",
+        "  can ignore it.",
+        f"- **worst-topic RD ≤ {result.config.convergence_se}** — plan §8.6's own criterion,",
+        "  applied at topic level through Day 11's `roll_up`.",
+        "",
+        convergence_table(result, markdown=md),
+        "",
+    ]
+    # A figure and the commentary its subject needs belong on the same screen,
+    # so the extra tables are attached to the figure they explain rather than
+    # collected in an appendix nobody reaches.
+    follow_up: dict[str, list[str]] = {
+        "coverage-vs-questions": [
+            "### Coverage against final error",
+            "",
+            coverage_error_table(result, markdown=md),
+            "",
+            "An untouched subtopic contributes its whole prior error to the all-subtopic",
+            "MAE, so breadth and headline accuracy are coupled by arithmetic before any",
+            "policy is involved. The bins are **not** a controlled comparison: a session",
+            "lands in a bin because of what its policy did, so the bin also selects on",
+            "the candidate and on session length. It describes an association and",
+            "establishes no cause.",
+            "",
+        ],
+    }
+    for index, figure in enumerate(figures, start=1):
+        lines += [
+            f"## Figure {index} — {figure.title}",
+            "",
+            f"![{figure.title}]({figure_dir}/{figure.filename})",
+            "",
+            figure.caption,
+            "",
+            figure_table(figure, markdown=md),
+            "",
+            *follow_up.get(figure.name, ()),
+        ]
+    return "\n".join(lines) + "\n"
+
+
 def format_seconds(seconds: float) -> str:
     """``93.4 s`` or ``1 m 33 s`` - for the script's timing line."""
     if not math.isfinite(seconds) or seconds < 60.0:
@@ -327,11 +477,15 @@ __all__ = [
     "ablation_table",
     "comparison_table",
     "config_block",
+    "convergence_report",
     "convergence_table",
+    "coverage_error_table",
     "curve_table",
+    "figure_table",
     "format_seconds",
     "markdown_report",
     "spread_table",
+    "stability_table",
     "stopping_table",
     "text_report",
 ]

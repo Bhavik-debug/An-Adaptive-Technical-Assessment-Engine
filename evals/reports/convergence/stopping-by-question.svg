@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.00 840.00" width="746.00" height="840.00" role="img" aria-label="When sessions stopped, and why">
+<title>When sessions stopped, and why</title>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;}
+@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink-2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+text{font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;fill:var(--ink-2)}
+.t{font-size:15px;font-weight:600;fill:var(--ink)}
+.s{font-size:12px;fill:var(--muted)}
+.p{font-size:12px;font-weight:600;fill:var(--ink)}
+.a{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.l{font-size:12px;fill:var(--ink-2)}
+.v{font-size:11px;font-weight:600;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+.g{stroke:var(--grid);stroke-width:1;fill:none}
+.x{stroke:var(--axis);stroke-width:1;fill:none}
+.ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+</style>
+<rect width="746.00" height="840.00" fill="var(--surface)"/>
+<text class="t" x="20.00" y="28.00">When sessions stopped, and why</text>
+<text class="s" x="20.00" y="48.00">One column per session length. Synthetic environment — see docs/simulation.md.</text>
+<text class="s" x="20.00" y="68.00">sessions</text>
+<text class="p" x="66.00" y="98.00">adaptive</text>
+<line class="g" x1="66.00" y1="256.00" x2="726.00" y2="256.00"/>
+<text class="a" x="58.00" y="259.50" text-anchor="end">0</text>
+<line class="g" x1="66.00" y1="218.50" x2="726.00" y2="218.50"/>
+<text class="a" x="58.00" y="222.00" text-anchor="end">50</text>
+<line class="g" x1="66.00" y1="181.00" x2="726.00" y2="181.00"/>
+<text class="a" x="58.00" y="184.50" text-anchor="end">100</text>
+<line class="g" x1="66.00" y1="143.50" x2="726.00" y2="143.50"/>
+<text class="a" x="58.00" y="147.00" text-anchor="end">150</text>
+<line class="g" x1="66.00" y1="106.00" x2="726.00" y2="106.00"/>
+<text class="a" x="58.00" y="109.50" text-anchor="end">200</text>
+<line class="x" x1="66.00" y1="256.00" x2="726.00" y2="256.00"/>
+<text class="a" x="84.33" y="272.00" text-anchor="middle">3</text>
+<rect x="109.00" y="255.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="121.00" y="272.00" text-anchor="middle">4</text>
+<text class="a" x="157.67" y="272.00" text-anchor="middle">5</text>
+<rect x="182.33" y="253.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="194.33" y="272.00" text-anchor="middle">6</text>
+<rect x="219.00" y="253.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="231.00" y="272.00" text-anchor="middle">7</text>
+<rect x="255.67" y="255.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="267.67" y="272.00" text-anchor="middle">8</text>
+<rect x="292.33" y="254.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="304.33" y="272.00" text-anchor="middle">9</text>
+<rect x="329.00" y="253.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="341.00" y="272.00" text-anchor="middle">10</text>
+<rect x="365.67" y="253.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="377.67" y="272.00" text-anchor="middle">11</text>
+<text class="a" x="414.33" y="272.00" text-anchor="middle">12</text>
+<text class="a" x="451.00" y="272.00" text-anchor="middle">13</text>
+<rect x="475.67" y="254.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="487.67" y="272.00" text-anchor="middle">14</text>
+<rect x="512.33" y="253.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="524.33" y="272.00" text-anchor="middle">15</text>
+<rect x="549.00" y="255.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="561.00" y="272.00" text-anchor="middle">16</text>
+<rect x="585.67" y="255.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="597.67" y="272.00" text-anchor="middle">17</text>
+<rect x="622.33" y="255.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="634.33" y="272.00" text-anchor="middle">18</text>
+<rect x="659.00" y="253.00" width="24.00" height="3.00" fill="var(--s5)"/>
+<text class="a" x="671.00" y="272.00" text-anchor="middle">19</text>
+<rect x="695.67" y="127.00" width="24.00" height="129.00" fill="var(--s4)"/>
+<text class="a" x="707.67" y="272.00" text-anchor="middle">20</text>
+<text class="p" x="66.00" y="336.00">random</text>
+<line class="g" x1="66.00" y1="494.00" x2="726.00" y2="494.00"/>
+<text class="a" x="58.00" y="497.50" text-anchor="end">0</text>
+<line class="g" x1="66.00" y1="456.50" x2="726.00" y2="456.50"/>
+<text class="a" x="58.00" y="460.00" text-anchor="end">50</text>
+<line class="g" x1="66.00" y1="419.00" x2="726.00" y2="419.00"/>
+<text class="a" x="58.00" y="422.50" text-anchor="end">100</text>
+<line class="g" x1="66.00" y1="381.50" x2="726.00" y2="381.50"/>
+<text class="a" x="58.00" y="385.00" text-anchor="end">150</text>
+<line class="g" x1="66.00" y1="344.00" x2="726.00" y2="344.00"/>
+<text class="a" x="58.00" y="347.50" text-anchor="end">200</text>
+<line class="x" x1="66.00" y1="494.00" x2="726.00" y2="494.00"/>
+<text class="a" x="84.33" y="510.00" text-anchor="middle">3</text>
+<text class="a" x="121.00" y="510.00" text-anchor="middle">4</text>
+<rect x="145.67" y="491.00" width="24.00" height="3.00" fill="var(--s5)"/>
+<text class="a" x="157.67" y="510.00" text-anchor="middle">5</text>
+<rect x="182.33" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="194.33" y="510.00" text-anchor="middle">6</text>
+<rect x="219.00" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="231.00" y="510.00" text-anchor="middle">7</text>
+<text class="a" x="267.67" y="510.00" text-anchor="middle">8</text>
+<rect x="292.33" y="493.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="304.33" y="510.00" text-anchor="middle">9</text>
+<rect x="329.00" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="341.00" y="510.00" text-anchor="middle">10</text>
+<text class="a" x="377.67" y="510.00" text-anchor="middle">11</text>
+<rect x="402.33" y="493.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="414.33" y="510.00" text-anchor="middle">12</text>
+<rect x="439.00" y="493.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="451.00" y="510.00" text-anchor="middle">13</text>
+<rect x="475.67" y="493.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="487.67" y="510.00" text-anchor="middle">14</text>
+<rect x="512.33" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="524.33" y="510.00" text-anchor="middle">15</text>
+<rect x="549.00" y="491.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="561.00" y="510.00" text-anchor="middle">16</text>
+<rect x="585.67" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="597.67" y="510.00" text-anchor="middle">17</text>
+<rect x="622.33" y="492.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="634.33" y="510.00" text-anchor="middle">18</text>
+<rect x="659.00" y="491.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="671.00" y="510.00" text-anchor="middle">19</text>
+<rect x="695.67" y="363.50" width="24.00" height="130.50" fill="var(--s4)"/>
+<text class="a" x="707.67" y="510.00" text-anchor="middle">20</text>
+<text class="p" x="66.00" y="574.00">fixed</text>
+<line class="g" x1="66.00" y1="732.00" x2="726.00" y2="732.00"/>
+<text class="a" x="58.00" y="735.50" text-anchor="end">0</text>
+<line class="g" x1="66.00" y1="694.50" x2="726.00" y2="694.50"/>
+<text class="a" x="58.00" y="698.00" text-anchor="end">50</text>
+<line class="g" x1="66.00" y1="657.00" x2="726.00" y2="657.00"/>
+<text class="a" x="58.00" y="660.50" text-anchor="end">100</text>
+<line class="g" x1="66.00" y1="619.50" x2="726.00" y2="619.50"/>
+<text class="a" x="58.00" y="623.00" text-anchor="end">150</text>
+<line class="g" x1="66.00" y1="582.00" x2="726.00" y2="582.00"/>
+<text class="a" x="58.00" y="585.50" text-anchor="end">200</text>
+<line class="x" x1="66.00" y1="732.00" x2="726.00" y2="732.00"/>
+<rect x="72.33" y="710.25" width="24.00" height="21.75" fill="var(--s5)"/>
+<text class="a" x="84.33" y="748.00" text-anchor="middle">3</text>
+<rect x="109.00" y="729.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="121.00" y="748.00" text-anchor="middle">4</text>
+<text class="a" x="157.67" y="748.00" text-anchor="middle">5</text>
+<rect x="182.33" y="729.00" width="24.00" height="3.00" fill="var(--s5)"/>
+<text class="a" x="194.33" y="748.00" text-anchor="middle">6</text>
+<rect x="219.00" y="731.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="231.00" y="748.00" text-anchor="middle">7</text>
+<text class="a" x="267.67" y="748.00" text-anchor="middle">8</text>
+<text class="a" x="304.33" y="748.00" text-anchor="middle">9</text>
+<rect x="329.00" y="731.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="341.00" y="748.00" text-anchor="middle">10</text>
+<text class="a" x="377.67" y="748.00" text-anchor="middle">11</text>
+<text class="a" x="414.33" y="748.00" text-anchor="middle">12</text>
+<text class="a" x="451.00" y="748.00" text-anchor="middle">13</text>
+<rect x="475.67" y="730.50" width="24.00" height="1.50" fill="var(--s5)"/>
+<text class="a" x="487.67" y="748.00" text-anchor="middle">14</text>
+<rect x="512.33" y="731.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="524.33" y="748.00" text-anchor="middle">15</text>
+<rect x="549.00" y="731.25" width="24.00" height="0.75" fill="var(--s5)"/>
+<text class="a" x="561.00" y="748.00" text-anchor="middle">16</text>
+<rect x="585.67" y="729.75" width="24.00" height="2.25" fill="var(--s5)"/>
+<text class="a" x="597.67" y="748.00" text-anchor="middle">17</text>
+<rect x="622.33" y="727.50" width="24.00" height="4.50" fill="var(--s5)"/>
+<text class="a" x="634.33" y="748.00" text-anchor="middle">18</text>
+<rect x="659.00" y="724.50" width="24.00" height="7.50" fill="var(--s5)"/>
+<text class="a" x="671.00" y="748.00" text-anchor="middle">19</text>
+<rect x="695.67" y="627.75" width="24.00" height="104.25" fill="var(--s4)"/>
+<text class="a" x="707.67" y="748.00" text-anchor="middle">20</text>
+<text class="s" x="373.00" y="778.00" text-anchor="middle">questions asked when the session ended</text>
+<line class="ln" x1="20.00" y1="802.00" x2="38.00" y2="802.00" stroke="var(--s4)"/>
+<text class="l" x="46.00" y="806.00">item_budget_reached</text>
+<line class="ln" x1="193.40" y1="802.00" x2="211.40" y2="802.00" stroke="var(--s5)"/>
+<text class="l" x="219.40" y="806.00">no_new_information</text>
+</svg>

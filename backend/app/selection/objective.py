@@ -271,8 +271,8 @@ def coverage_deficit(topic_key: str, state: SelectionState) -> float:
     1 item and having 0 is fully unserved (1.0), the same as a topic wanting 5
     and having 0 - which is correct, because both are equally far from done.
 
-    ``coverage_targets`` is consumed, never built.  The blueprint builder that
-    produces it is Day 15 and is **DEFERRED**.
+    ``coverage_targets`` is consumed, never built.  Day 15's
+    :mod:`app.blueprint` produces it; this package does not import that one.
     """
     target = state.coverage_targets.get(topic_key, 0)
     if target <= 0:

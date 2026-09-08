@@ -129,11 +129,12 @@ class SelectionState:
 
     ``coverage_targets``
         ``topic_key -> how many items this topic must get``.  Consumed, never
-        built: the blueprint builder that produces it is plan section 3, Day 15,
-        and is **DEFERRED**.  Day 12's contract with it is this mapping and
-        nothing more.  A topic missing from it is not required by the blueprint,
-        so it has no quota left and no coverage deficit - it is simply not part
-        of this interview.
+        built: it is produced by :meth:`app.blueprint.Blueprint.coverage_targets`
+        (Day 15).  Day 12's contract with it is this mapping and nothing more,
+        which is why Day 15 needed no change here - it became a producer of an
+        argument that was already declared.  A topic missing from it is not
+        required by the blueprint, so it has no quota left and no coverage
+        deficit - it is simply not part of this interview.
 
     ``jd_weights``
         ``topic_key -> role alignment in [0, 1]``, straight out of the job

@@ -245,7 +245,9 @@ over-served quota all score 0.0; the floor makes this a nudge toward the
 underserved rather than a punishment of the served.
 
 The `target` numbers come from the session blueprint. **Day 12 consumes that
-mapping; it does not build one.** The blueprint builder is Day 15.
+mapping; it does not build one.** The producer is Day 15's
+[`docs/blueprint.md`](blueprint.md) — `Blueprint.coverage_targets`. The arrow
+points one way: `app.blueprint` imports `app.selection`, never the reverse.
 
 **`redundancy(q, asked)` → `[0, 1]`.** The cosine similarity to the *most*
 similar already-asked question — maximum, not mean. A candidate that is a
@@ -479,7 +481,7 @@ in `app/selection/` hides a partial version of it.
 | the simulation harness — 200 synthetic candidates, the Beta response model, CAT vs random vs fixed-sequence | §8.6 | 13 |
 | the convergence chart, items-to-reach-SE-0.35, coverage compliance, the `\|b−θ\|` histogram | §8.6 | 14 |
 | the **weight ablation** that would justify the six weights empirically | §8.6 | 13 |
-| the **blueprint builder** — topic quotas, item budget, time budget. Day 12 *consumes* a quota mapping; it does not build one | §3 | 15 |
+| ~~the **blueprint builder** — topic quotas, item budget, time budget~~ — **done**, Day 15, `app.blueprint` ([`docs/blueprint.md`](blueprint.md)). Day 12 still *consumes* a quota mapping and does not build one | §3 | 15 |
 | difficulty calibration — fitting `b` from observations. This is what ε-greedy's exploration data is *for* | §5.11 | later |
 | the follow-up policy | §8.5 | later |
 | grading, the event log, session persistence, the FSM | §7, §11 | later |

@@ -35,7 +35,10 @@ class InterviewSession(Base):
     # resume_id / jd_id arrive in Phase 5 with the tables they reference.
 
     # Topic quotas, item budget, time budget - computed once at session creation
-    # by the blueprint builder (plan section 3, Day 15).
+    # by the blueprint builder (plan section 3, Day 15). The shape written here
+    # is `app.blueprint.Blueprint.to_dict()`, and `Blueprint.from_dict()` reads
+    # it back and re-validates. Writing the row belongs to the session layer,
+    # which is Phase 5.
     blueprint: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     state: Mapped[str] = mapped_column(
         sa.Text, nullable=False, server_default=sa.literal(SESSION_STATE_CREATED)

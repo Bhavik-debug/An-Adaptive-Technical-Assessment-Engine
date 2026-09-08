@@ -15,6 +15,20 @@ and the ability update are imported from the packages that ship them; this
 module supplies the clock, the synthetic grader, and the bookkeeping that turns
 a run into numbers.
 
+What a session records
+----------------------
+
+Every turn appends a :class:`TrajectoryStep` - the engine's belief about *every*
+blueprint subtopic at that moment, the item that produced it, and the error
+against the hidden truth.  The step is written **after** the update, by the
+simulator, from state the policy already had; recording it changes no decision
+and consumes no randomness, which is why Day 14 could add it to Day 13's loop
+rather than re-running the experiment through a second, parallel one.
+
+The aggregate trajectories Day 13 reported (``mae_trajectory``,
+``rd_trajectory``) are now views onto that record rather than separate lists, so
+there is exactly one place a per-turn number comes from.
+
 Where the state comes from, and where it does not
 -------------------------------------------------
 
@@ -102,6 +116,48 @@ STOP_POOL_EXHAUSTED = "pool_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
+class TrajectoryStep:
+    """What the engine believed after ``items_asked`` questions.
+
+    One of these per turn, plus one for the cold start, so a session of eleven
+    items has twelve steps.  It is the simulator's observation record: written
+    after the update from state the policy already had, never read by a policy,
+    and never consuming a random draw - so adding it left every Day 13 number
+    bit-for-bit unchanged.
+
+    ``theta`` and ``rd`` cover **every blueprint subtopic**, with unmeasured
+    ones at Day 12's cold-start prior, for the same reason
+    :func:`app.simulation.metrics.absolute_errors` insists on it: a policy that
+    never asked about graphs still has an opinion about graphs, and a report
+    would print it.
+
+    The ``item_*``, ``score`` and ``delta_theta`` fields describe the answer
+    that *produced* this step and are ``None`` on the cold start, where no
+    answer exists.  A zero would be a lie there - "no question was asked" and
+    "a question moved theta by nothing" are different facts, and the stability
+    analysis in :mod:`app.simulation.convergence` depends on telling them apart.
+    """
+
+    #: How many questions had been answered.  ``0`` is the cold start.
+    items_asked: int
+    item_id: str | None
+    subtopic_key: str | None
+    topic_key: str | None
+    #: The graded answer in ``[0, 1]``; ``None`` on the cold start.
+    score: float | None
+    #: Day 11's ``AbilityUpdate.delta_theta`` for that answer, signed.
+    delta_theta: float | None
+    theta: Mapping[str, float]
+    rd: Mapping[str, float]
+    #: How many subtopics had received at least one item by this point.
+    subtopics_measured: int
+    mae: float
+    rmse: float
+    #: Day 13's worst per-topic RD; ``inf`` while any required topic is untouched.
+    worst_topic_rd: float
+
+
+@dataclass(frozen=True, slots=True)
 class SessionResult:
     """Everything one simulated interview produced.
 
@@ -138,12 +194,34 @@ class SessionResult:
     #: ``|b - theta|`` at the moment each item was chosen - plan section 8.6's
     #: "difficulty appropriateness" measurement.
     difficulty_gaps: tuple[float, ...]
-    #: MAE after 0, 1, 2, ... items.  Index 0 is the cold start.
-    mae_trajectory: tuple[float, ...]
-    #: Worst per-topic RD after 0, 1, 2, ... items.  ``inf`` while any required
-    #: topic is still untouched.
-    rd_trajectory: tuple[float, ...]
+    #: The per-turn observation record, oldest first.  Index 0 is the cold
+    #: start, so ``len(trajectory) == items_asked + 1``.
+    trajectory: tuple[TrajectoryStep, ...]
     time_used_s: float
+
+    @property
+    def mae_trajectory(self) -> tuple[float, ...]:
+        """MAE after 0, 1, 2, ... items.  Index 0 is the cold start."""
+        return tuple(step.mae for step in self.trajectory)
+
+    @property
+    def rmse_trajectory(self) -> tuple[float, ...]:
+        """RMSE after 0, 1, 2, ... items."""
+        return tuple(step.rmse for step in self.trajectory)
+
+    @property
+    def rd_trajectory(self) -> tuple[float, ...]:
+        """Worst per-topic RD after 0, 1, 2, ... items.
+
+        ``inf`` while any required topic is still untouched - which is most of a
+        short session, and is the honest reading of "we have no idea".
+        """
+        return tuple(step.worst_topic_rd for step in self.trajectory)
+
+    @property
+    def coverage_trajectory(self) -> tuple[float, ...]:
+        """Subtopics with at least one item after 0, 1, 2, ... items."""
+        return tuple(float(step.subtopics_measured) for step in self.trajectory)
 
     @property
     def primary_stop_reason(self) -> str:
@@ -159,6 +237,43 @@ class SessionResult:
 def _theta_map(state: SelectionState, subtopics: Sequence[str]) -> dict[str, float]:
     """What the engine currently believes, for every blueprint subtopic."""
     return {subtopic: state.theta_for(subtopic) for subtopic in subtopics}
+
+
+def _record_step(
+    *,
+    items_asked: int,
+    state: SelectionState,
+    ability: Mapping[str, AbilityState],
+    truth: Mapping[str, float],
+    subtopics: Sequence[str],
+    parent_of: Mapping[str, str],
+    topics: Sequence[str],
+    item: CandidateItem | None = None,
+    score: float | None = None,
+    delta_theta: float | None = None,
+) -> TrajectoryStep:
+    """Snapshot the engine's belief, and its distance from the hidden truth.
+
+    Called by the simulator after each update, never by a policy.  ``truth`` is
+    read here and nowhere the policy can see - this function's output goes into
+    the ``SessionResult``, which is written when the session is already over.
+    """
+    theta = _theta_map(state, subtopics)
+    errors = absolute_errors(theta, truth, subtopics)
+    return TrajectoryStep(
+        items_asked=items_asked,
+        item_id=None if item is None else item.id,
+        subtopic_key=None if item is None else item.subtopic_key,
+        topic_key=None if item is None else item.topic_key,
+        score=score,
+        delta_theta=delta_theta,
+        theta=theta,
+        rd={subtopic: state.rd_for(subtopic) for subtopic in subtopics},
+        subtopics_measured=len(ability),
+        mae=mae(errors),
+        rmse=rmse(errors),
+        worst_topic_rd=worst_topic_rd(ability, parent_of, topics),
+    )
 
 
 def run_session(
@@ -191,10 +306,26 @@ def run_session(
         )
 
     state = current_state()
-    mae_trajectory = [
-        mae(absolute_errors(_theta_map(state, subtopics), candidate.true_theta, subtopics))
-    ]
-    rd_trajectory = [worst_topic_rd(ability, parent_of, topics)]
+
+    def snapshot(
+        item: CandidateItem | None = None,
+        score: float | None = None,
+        delta_theta: float | None = None,
+    ) -> TrajectoryStep:
+        return _record_step(
+            items_asked=len(asked),
+            state=state,
+            ability=ability,
+            truth=candidate.true_theta,
+            subtopics=subtopics,
+            parent_of=parent_of,
+            topics=topics,
+            item=item,
+            score=score,
+            delta_theta=delta_theta,
+        )
+
+    trajectory = [snapshot()]
     stop_reasons: tuple[str, ...] = ()
 
     while True:
@@ -234,12 +365,9 @@ def run_session(
         deltas.append(update.delta_theta)
 
         state = current_state()
-        mae_trajectory.append(
-            mae(absolute_errors(_theta_map(state, subtopics), candidate.true_theta, subtopics))
-        )
-        rd_trajectory.append(worst_topic_rd(ability, parent_of, topics))
+        trajectory.append(snapshot(item, score, update.delta_theta))
 
-    errors = absolute_errors(_theta_map(state, subtopics), candidate.true_theta, subtopics)
+    final = trajectory[-1]
     measured = sorted(ability)
     return SessionResult(
         strategy=strategy.name,
@@ -247,23 +375,26 @@ def run_session(
         items_asked=len(asked),
         asked_ids=tuple(item.id for item in asked),
         stop_reasons=stop_reasons,
-        final_theta=_theta_map(state, subtopics),
-        final_rd={s: state.rd_for(s) for s in subtopics},
+        final_theta=dict(final.theta),
+        final_rd=dict(final.rd),
         ground_truth_theta=dict(candidate.true_theta),
-        mae=mae(errors),
-        rmse=rmse(errors),
+        mae=final.mae,
+        rmse=final.rmse,
         mae_measured=(
             mae(absolute_errors(_theta_map(state, measured), candidate.true_theta, measured))
             if measured
             else None
         ),
         subtopics_measured=len(measured),
-        items_to_mae=first_index_at_or_below(mae_trajectory, config.convergence_mae),
-        items_to_se=first_index_at_or_below(rd_trajectory, config.convergence_se),
+        items_to_mae=first_index_at_or_below(
+            [step.mae for step in trajectory], config.convergence_mae
+        ),
+        items_to_se=first_index_at_or_below(
+            [step.worst_topic_rd for step in trajectory], config.convergence_se
+        ),
         coverage_met=all(state.asked_count(topic) >= quota for topic, quota in quotas.items()),
         difficulty_gaps=tuple(gaps),
-        mae_trajectory=tuple(mae_trajectory),
-        rd_trajectory=tuple(rd_trajectory),
+        trajectory=tuple(trajectory),
         time_used_s=config.time_budget_s - time_left,
     )
 
@@ -448,6 +579,7 @@ __all__ = [
     "ExperimentResult",
     "SessionResult",
     "StrategySummary",
+    "TrajectoryStep",
     "ablation_variants",
     "build_fixed_strategy",
     "run_ablation",
