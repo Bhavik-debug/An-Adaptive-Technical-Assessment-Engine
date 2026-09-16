@@ -55,6 +55,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.config import Settings
+from app.grading import GradeJudgment
 from app.llm.cache import NullCache
 from app.llm.client import CallMeta, call_structured
 from app.llm.errors import LLMError
@@ -77,9 +78,21 @@ RECORDING_PLAN_VERSION = 1
 #: ``_ERROR_KINDS`` in the stub provider, and for the same reason: resolving
 #: ``"app.llm.probe:ProbeAnswer"`` by import would let a plan file name any
 #: importable object in the process.  A phase adds its schema here when it adds
-#: its prompt - Phase 4's grading schemas are not this day's work.
+#: its prompt, which is why ``GradeJudgment`` arrived on Day 16 alongside
+#: grading prompt v1.
+#:
+#: Importing the ``app.grading`` *package* (rather than ``app.grading.schema``)
+#: is deliberate and is what makes a grading recording possible at all: the
+#: package's ``__init__`` registers grading prompt v1 into the prompt registry,
+#: and a recorder that could not find the prompt could not assemble the request.
+#:
+#: This is the one place ``app/llm/`` names a domain package, and it is a tool
+#: rather than the chokepoint: ``client.py``, ``router.py``, ``prompts.py`` and
+#: the providers stay free of domain imports, which a test in
+#: ``tests/unit/grading/test_grader.py`` pins.
 SCHEMAS: Mapping[str, type[BaseModel]] = {
     "ProbeAnswer": ProbeAnswer,
+    "GradeJudgment": GradeJudgment,
 }
 
 #: A recording name becomes a filename, so it is restricted to characters that

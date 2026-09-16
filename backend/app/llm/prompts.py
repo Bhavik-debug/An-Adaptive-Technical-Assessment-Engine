@@ -95,11 +95,46 @@ PROMPTS: dict[TaskName, PromptTemplate] = {
 }
 
 
+def register_prompt(template: PromptTemplate) -> PromptTemplate:
+    """Let the package that owns a task's *wording* own its prompt.
+
+    Day 16 added the first domain prompt, and with it a boundary question the
+    connectivity probe never raised.  Plan section 13.2 says ``llm/`` must not
+    know about domain logic, and a grading prompt is domain logic: it carries
+    the anchored rubric, which ``grading/`` owns.  Defining it here would put
+    four rubric dimensions and twenty level descriptors inside the provider
+    layer; importing ``app.grading`` from here would point the dependency arrow
+    the wrong way.
+
+    So the registry stays here and the *content* lives with its owner:
+    ``app/grading/prompt.py`` calls this at import time.  That is safe because
+    nothing can reach ``TaskName.GRADE_ANSWER`` without going through
+    ``app.grading.judge_answer``, which imports the package that registers it -
+    and calling ``call_structured(TaskName.GRADE_ANSWER, ...)`` directly, from
+    outside the owning package, is the thing the architecture forbids anyway.
+
+    Re-registering identical text is a no-op so that a double import is
+    harmless; re-registering *different* text raises, because two modules
+    disagreeing about one task's prompt is a bug that would otherwise be decided
+    by import order.
+    """
+    existing = PROMPTS.get(template.task)
+    if existing is not None and existing.fingerprint != template.fingerprint:
+        raise ValueError(
+            f"task {template.task.value!r} already has a prompt "
+            f"({existing.version}/{existing.fingerprint}); refusing to replace it with "
+            f"{template.version}/{template.fingerprint}"
+        )
+    PROMPTS[template.task] = template
+    return template
+
+
 def get_prompt(task: TaskName) -> PromptTemplate:
     try:
         return PROMPTS[task]
     except KeyError as exc:
         raise PromptNotRegisteredError(
             f"task {task.value!r} has no prompt template yet; "
-            "it is declared in the routing table but lands in a later phase"
+            "it is declared in the routing table but lands in a later phase, or its "
+            "owning package has not been imported (see register_prompt)"
         ) from exc

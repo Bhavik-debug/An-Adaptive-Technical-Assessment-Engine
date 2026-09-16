@@ -287,8 +287,23 @@ class TestAPlanCannotForgeAFixture:
             parse_recording_plan({"format_version": RECORDING_PLAN_VERSION, "requests": [entry]})
 
     def test_a_plan_may_only_name_a_registered_schema(self):
-        """No import by name: the table is the whole list, like ``_ERROR_KINDS``."""
-        assert set(SCHEMAS) == {"ProbeAnswer"}
+        """No import by name: the table is the whole list, like ``_ERROR_KINDS``.
+
+        The set grows one entry per phase, as each phase adds its prompt.
+        ``GradeJudgment`` arrived on Day 16 with grading prompt v1.
+        """
+        assert set(SCHEMAS) == {"ProbeAnswer", "GradeJudgment"}
+
+    def test_a_schema_outside_the_table_is_refused_by_name(self):
+        """The property the table exists for, asserted rather than implied."""
+        entry = {
+            "name": "x",
+            "task": "connectivity_probe",
+            "schema": "app.llm.probe:ProbeAnswer",
+            "inputs": {"token": "a"},
+        }
+        with pytest.raises(PlanError, match="unknown schema"):
+            parse_recording_plan({"format_version": RECORDING_PLAN_VERSION, "requests": [entry]})
 
 
 # ---------------------------------------------------------------------------

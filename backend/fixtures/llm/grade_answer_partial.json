@@ -1,0 +1,25 @@
+{
+  "format_version": 1,
+  "request_hash": "a3f071f550fba679f07ace5cb3d669aa30494b4d10bd6eb417f50cbef915cc30",
+  "description": "grade_answer: a synthetic answer that covers one concept, gestures at a second and omits the third, and states one factually wrong claim. Exercises the mixed-label path, a null evidence span, and a populated errors[] and misconceptions_hit[]. Recorded from nvidia/nemotron-3.5-lightning-30b-a3b on 2026-09-16 (structured_mode=json_schema, schema_retries=0).",
+  "text": "{\n  \"concepts\": [\n    {\n      \"key\": \"cache_invalidation\",\n      \"label\": \"absent\",\n      \"evidence\": null\n    },\n    {\n      \"key\": \"eviction\",\n      \"label\": \"partial\",\n      \"evidence\": \"Memory would be capped and old keys would go when it fills up.\"\n    },\n    {\n      \"key\": \"stampede\",\n      \"label\": \"absent\",\n      \"evidence\": null\n    }\n  ],\n  \"errors\": [\n    {\n      \"claim\": \"Redis is ACID compliant\",\n      \"severity\": \"major\"\n    }\n  ],\n  \"misconceptions_hit\": [],\n  \"rubric\": {\n    \"structure\": 1,\n    \"tradeoff_awareness\": 0,\n    \"specificity\": 1,\n    \"communication\": 1\n  },\n  \"grader_confidence\": 0.95\n}",
+  "input_tokens": 3897,
+  "output_tokens": 198,
+  "reasoning_tokens": 0,
+  "finish_reason": "stop",
+  "recorded_structured_mode": "json_schema",
+  "request_preview": {
+    "task": "grade_answer",
+    "inputs": {
+      "question": "A read-heavy product catalogue service is hitting its database hard. Walk me through how you would put a cache in front of it: what you would cache, how entries stop being stale, and what happens when the cache is cold.",
+      "expected_concepts": "- cache_invalidation: says how a stale entry is removed or refreshed, not merely that staleness exists\n- eviction: names an eviction policy and the bound it operates against\n- stampede: names the thundering-herd or cache-stampede problem and a mitigation",
+      "misconceptions": "- Believes Redis offers ACID transactions in the same sense a relational database does\n- Believes a TTL alone is sufficient to guarantee correctness after a write",
+      "answer": "I would put Redis in front of the database and cache the product rows. Redis is ACID compliant so I can rely on the cache and the database staying in agreement. Entries would get a TTL, which handles staleness. Memory would be capped and old keys would go when it fills up."
+    },
+    "prompt_version": "v1",
+    "prompt_fingerprint": "ee1b9c3bf71e",
+    "schema": "GradeJudgment",
+    "schema_fingerprint": "c00b6a7f31d13b65",
+    "temperature": 0.0
+  }
+}

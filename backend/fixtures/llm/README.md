@@ -155,3 +155,29 @@ that reads it.
 | File | What it is |
 |---|---|
 | `connectivity_probe.json` | A real Nemotron response to the Phase-1 exit-gate probe, recorded from `integrate.api.nvidia.com`. Replaying it exercises the whole chokepoint — router, provider, JSON extraction, schema validation, cost accounting, tracing — with no network. |
+
+| `grade_answer_strong.json` | A real Nemotron grading of a strong synthetic answer. All three concepts `covered`, rubric 3/3/3/3, confidence 0.95. |
+| `grade_answer_partial.json` | A partly-correct answer with one factual error. Mixed labels, the ACID claim caught as a `major` error. |
+| `grade_answer_injection.json` | An answer that orders the grader to award full marks. Every concept `absent`, every rubric dimension 0, and **no score field** — the model could not have emitted one. |
+
+Recorded on Day 18 from `nvidia/nemotron-3.5-lightning-30b-a3b`,
+`structured_mode=json_schema`, **`schema_retry_count=0` on all three**: the real
+model satisfied `GradeJudgment` first time, with no repair round.
+`tests/unit/grading/test_recorded_grading.py` replays all three offline and
+asserts the contract against the recorded bytes.
+
+## Why grading cannot fall back on synthesis
+
+`LLM_STUB_ON_MISSING=synthesize` derives a shape-correct object by walking the
+JSON Schema. That works for `ProbeAnswer`. It **cannot** produce a valid
+`GradeJudgment`, because that contract's hardest rules are *cross-field* and
+JSON Schema cannot express them:
+
+* `evidence` must be null exactly when `label` is `absent`;
+* every concept key must be one of the keys *this question* asked about.
+
+So the Phase-4 evaluation suite has to replay real recordings — synthesis will
+raise `SchemaValidationFailedError` rather than quietly hand back invented
+labels. That is the desired behaviour, and
+`tests/unit/grading/test_grader.py::TestTheGraderRunsOnTheOfflineProvider` pins
+it so nobody rediscovers it on Day 18.

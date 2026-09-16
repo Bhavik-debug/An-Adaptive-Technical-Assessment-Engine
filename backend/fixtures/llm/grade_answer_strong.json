@@ -1,0 +1,25 @@
+{
+  "format_version": 1,
+  "request_hash": "bf2160272c60e7f3eec2717878799f4ae72f3e51e320eaa6f368627c56abe0ce",
+  "description": "grade_answer: a synthetic answer that covers every expected concept, so a replay exercises the all-covered path including three non-null evidence spans. Recorded from nvidia/nemotron-3.5-lightning-30b-a3b on 2026-09-16 (structured_mode=json_schema, schema_retries=0).",
+  "text": "{\n  \"concepts\": [\n    {\n      \"key\": \"cache_invalidation\",\n      \"label\": \"covered\",\n      \"evidence\": \"the write path updates the row and the cache entry in the same request, so a reader never sees a version older than the last committed write\"\n    },\n    {\n      \"key\": \"eviction\",\n      \"label\": \"covered\",\n      \"evidence\": \"LRU against a fixed memory cap, around 4 GB, so the working set stays resident and the tail gets dropped rather than the cache growing without bound\"\n    },\n    {\n      \"key\": \"stampede\",\n      \"label\": \"covered\",\n      \"evidence\": \"on a restart every key misses at once and the whole read volume lands on the database in one wave\"\n    }\n  ],\n  \"errors\": [],\n  \"misconceptions_hit\": [],\n  \"rubric\": {\n    \"structure\": 3,\n    \"tradeoff_awareness\": 3,\n    \"specificity\": 3,\n    \"communication\": 3\n  },\n  \"grader_confidence\": 0.95\n}",
+  "input_tokens": 4018,
+  "output_tokens": 237,
+  "reasoning_tokens": 0,
+  "finish_reason": "stop",
+  "recorded_structured_mode": "json_schema",
+  "request_preview": {
+    "task": "grade_answer",
+    "inputs": {
+      "question": "A read-heavy product catalogue service is hitting its database hard. Walk me through how you would put a cache in front of it: what you would cache, how entries stop being stale, and what happens when the cache is cold.",
+      "expected_concepts": "- cache_invalidation: says how a stale entry is removed or refreshed, not merely that staleness exists\n- eviction: names an eviction policy and the bound it operates against\n- stampede: names the thundering-herd or cache-stampede problem and a mitigation",
+      "misconceptions": "- Believes Redis offers ACID transactions in the same sense a relational database does\n- Believes a TTL alone is sufficient to guarantee correctness after a write",
+      "answer": "I would cache the rendered catalogue row keyed by product id. For staleness I would go write-through: the write path updates the row and the cache entry in the same request, so a reader never sees a version older than the last committed write, and I would keep a short TTL as a backstop for anything that updates out of band. Eviction would be LRU against a fixed memory cap, around 4 GB, so the working set stays resident and the tail gets dropped rather than the cache growing without bound. The cold-start case is the one that bites: on a restart every key misses at once and the whole read volume lands on the database in one wave. I would guard that with a per-key lock so only one request recomputes a missing entry while the others wait, and jitter the TTLs by about ten percent so entries written together do not expire together."
+    },
+    "prompt_version": "v1",
+    "prompt_fingerprint": "ee1b9c3bf71e",
+    "schema": "GradeJudgment",
+    "schema_fingerprint": "c00b6a7f31d13b65",
+    "temperature": 0.0
+  }
+}

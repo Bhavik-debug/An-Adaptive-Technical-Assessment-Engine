@@ -1,0 +1,185 @@
+%% references.bib -- Adaptive AI Interviewer, Phase 1-3 report
+%%
+%% Every entry below is cited in report.tex. Details were checked against
+%% the publisher / arXiv / dblp record on 2026-09-15. The report's biblatex
+%% options suppress DOI, URL and eprint fields in the printed list; they are
+%% kept here so the record is complete and re-usable.
+
+%% --- Psychometrics: item response theory, adaptive testing, rating systems ---
+
+@book{lord1980irt,
+  author    = {Lord, Frederic M.},
+  title     = {Applications of Item Response Theory to Practical Testing Problems},
+  publisher = {Lawrence Erlbaum Associates},
+  address   = {Hillsdale, NJ},
+  year      = {1980},
+  isbn      = {978-0-89859-006-7}
+}
+
+@book{vanderlinden2000cat,
+  editor    = {van der Linden, Wim J. and Glas, Cees A. W.},
+  title     = {Computerized Adaptive Testing: Theory and Practice},
+  publisher = {Kluwer Academic Publishers},
+  address   = {Dordrecht},
+  year      = {2000},
+  doi       = {10.1007/0-306-47531-6},
+  isbn      = {978-0-7923-6425-2}
+}
+
+@book{elo1978rating,
+  author    = {Elo, Arpad E.},
+  title     = {The Rating of Chessplayers, Past and Present},
+  publisher = {Arco Publishing},
+  address   = {New York},
+  year      = {1978},
+  isbn      = {978-0-668-04721-0}
+}
+
+@article{glickman1999glicko,
+  author       = {Glickman, Mark E.},
+  title        = {Parameter Estimation in Large Dynamic Paired Comparison Experiments},
+  journaltitle = {Journal of the Royal Statistical Society: Series C (Applied Statistics)},
+  volume       = {48},
+  number       = {3},
+  pages        = {377--394},
+  year         = {1999},
+  doi          = {10.1111/1467-9876.00159}
+}
+
+%% --- Information retrieval: fusion, embeddings, reranking, indexing, metrics ---
+
+@inproceedings{cormack2009rrf,
+  author    = {Cormack, Gordon V. and Clarke, Charles L. A. and B{\"u}ttcher, Stefan},
+  title     = {Reciprocal Rank Fusion Outperforms {C}ondorcet and Individual Rank Learning Methods},
+  booktitle = {Proceedings of the 32nd International {ACM} {SIGIR} Conference on Research and Development in Information Retrieval},
+  series    = {SIGIR '09},
+  publisher = {ACM},
+  address   = {Boston, MA, USA},
+  year      = {2009},
+  pages     = {758--759},
+  doi       = {10.1145/1571941.1572114}
+}
+
+@inproceedings{xiao2023cpack,
+  author    = {Xiao, Shitao and Liu, Zheng and Zhang, Peitian and Muennighoff, Niklas and Lian, Defu and Nie, Jian-Yun},
+  title     = {{C-Pack}: Packed Resources for General {C}hinese Embeddings},
+  booktitle = {Proceedings of the 47th International {ACM} {SIGIR} Conference on Research and Development in Information Retrieval},
+  series    = {SIGIR '24},
+  publisher = {ACM},
+  address   = {Washington, DC, USA},
+  year      = {2024},
+  pages     = {641--649},
+  doi       = {10.1145/3626772.3657878},
+  eprint    = {2309.07597},
+  eprinttype = {arxiv}
+}
+
+@misc{nogueira2019bert,
+  author     = {Nogueira, Rodrigo and Cho, Kyunghyun},
+  title      = {Passage Re-ranking with {BERT}},
+  year       = {2019},
+  note       = {arXiv preprint arXiv:1901.04085},
+  eprint     = {1901.04085},
+  eprinttype = {arxiv},
+  eprintclass = {cs.IR}
+}
+
+@article{malkov2020hnsw,
+  author       = {Malkov, Yu. A. and Yashunin, D. A.},
+  title        = {Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs},
+  journaltitle = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  volume       = {42},
+  number       = {4},
+  pages        = {824--836},
+  year         = {2020},
+  doi          = {10.1109/TPAMI.2018.2889473}
+}
+
+@article{jarvelin2002ndcg,
+  author       = {J{\"a}rvelin, Kalervo and Kek{\"a}l{\"a}inen, Jaana},
+  title        = {Cumulated Gain-Based Evaluation of {IR} Techniques},
+  journaltitle = {ACM Transactions on Information Systems},
+  volume       = {20},
+  number       = {4},
+  pages        = {422--446},
+  year         = {2002},
+  doi          = {10.1145/582415.582418}
+}
+
+%% --- Security ---
+
+@inproceedings{biryukov2016argon2,
+  author    = {Biryukov, Alex and Dinu, Daniel and Khovratovich, Dmitry},
+  title     = {Argon2: New Generation of Memory-Hard Functions for Password Hashing and Other Applications},
+  booktitle = {2016 {IEEE} European Symposium on Security and Privacy ({EuroS\&P})},
+  publisher = {IEEE},
+  address   = {Saarbr{\"u}cken, Germany},
+  year      = {2016},
+  pages     = {292--302},
+  doi       = {10.1109/EuroSP.2016.31}
+}
+
+%% --- Added for the mid-semester report: CAT literature, LLM evaluation, SE references ---
+
+@article{weiss1984cat,
+  author       = {Weiss, David J. and Kingsbury, G. Gage},
+  title        = {Application of Computerized Adaptive Testing to Educational Problems},
+  journaltitle = {Journal of Educational Measurement},
+  volume       = {21},
+  number       = {4},
+  pages        = {361--375},
+  year         = {1984},
+  doi          = {10.1111/j.1745-3984.1984.tb01040.x}
+}
+
+@article{chang1996global,
+  author       = {Chang, Hua-Hua and Ying, Zhiliang},
+  title        = {A Global Information Approach to Computerized Adaptive Testing},
+  journaltitle = {Applied Psychological Measurement},
+  volume       = {20},
+  number       = {3},
+  pages        = {213--229},
+  year         = {1996},
+  doi          = {10.1177/014662169602000303}
+}
+
+@article{pelanek2016elo,
+  author       = {Pel{\'a}nek, Radek},
+  title        = {Applications of the {Elo} Rating System in Adaptive Educational Systems},
+  journaltitle = {Computers \& Education},
+  volume       = {98},
+  pages        = {169--179},
+  year         = {2016},
+  doi          = {10.1016/j.compedu.2016.03.017}
+}
+
+@inproceedings{zheng2023judge,
+  author    = {Zheng, Lianmin and Chiang, Wei-Lin and Sheng, Ying and Zhuang, Siyuan and Wu, Zhanghao and Zhuang, Yonghao and Lin, Zi and Li, Zhuohan and Li, Dacheng and Xing, Eric P. and Zhang, Hao and Gonzalez, Joseph E. and Stoica, Ion},
+  title     = {Judging {LLM}-as-a-Judge with {MT-Bench} and {Chatbot Arena}},
+  booktitle = {Advances in Neural Information Processing Systems 36 (NeurIPS 2023), Datasets and Benchmarks Track},
+  year      = {2023},
+  eprint    = {2306.05685},
+  eprinttype = {arxiv}
+}
+
+@inproceedings{greshake2023injection,
+  author    = {Greshake, Kai and Abdelnabi, Sahar and Mishra, Shailesh and Endres, Christoph and Holz, Thorsten and Fritz, Mario},
+  title     = {Not What You've Signed Up For: Compromising Real-World {LLM}-Integrated Applications with Indirect Prompt Injection},
+  booktitle = {Proceedings of the 16th ACM Workshop on Artificial Intelligence and Security},
+  series    = {AISec '23},
+  publisher = {ACM},
+  address   = {Copenhagen, Denmark},
+  year      = {2023},
+  pages     = {79--90},
+  doi       = {10.1145/3605764.3623985}
+}
+
+@book{booch2005uml,
+  author    = {Booch, Grady and Rumbaugh, James and Jacobson, Ivar},
+  title     = {The Unified Modeling Language User Guide},
+  edition   = {2},
+  publisher = {Addison-Wesley},
+  address   = {Boston, MA},
+  year      = {2005},
+  isbn      = {978-0-321-26797-9}
+}

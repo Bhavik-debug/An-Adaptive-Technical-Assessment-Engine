@@ -37,6 +37,14 @@ class TaskName(StrEnum):
     FINAL_REPORT = "final_report"
     DEEP_DIVE_AGENT = "deep_dive_agent"
 
+    #: Day 18, plan section 12.2 step 2. Writes controlled synthetic answers for
+    #: the grader's evaluation set, given the concept keys to demonstrate and the
+    #: ones to omit. **Offline tooling, not interview machinery**: it is invoked
+    #: by `scripts/build_grading_evalset.py` and by nothing on a turn path. It is
+    #: in this table because every LLM call in this project names a task, and an
+    #: eval-set builder that routed itself would be the first exception.
+    EVAL_ANSWER_SYNTHESIS = "eval_answer_synthesis"
+
 
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
@@ -101,6 +109,17 @@ TASK_SPECS: dict[TaskName, TaskSpec] = {
     ),
     TaskName.FINAL_REPORT: TaskSpec(
         tier=ModelTier.MID, temperature=0.3, top_p=0.95, max_output_tokens=4096
+    ),
+    TaskName.EVAL_ANSWER_SYNTHESIS: TaskSpec(
+        # Temperature 0: a dataset that regenerates differently every run is not
+        # a dataset, it is a sample. Determinism here also makes the build
+        # cacheable, so a re-run after a crash costs nothing, and it means the
+        # committed file can be regenerated and diffed rather than only trusted.
+        # The variety this set needs comes from 24 questions x 5 briefs, which is
+        # variety by construction rather than by sampling.
+        tier=ModelTier.SMALL_FAST,
+        temperature=0.0,
+        max_output_tokens=1024,
     ),
     TaskName.DEEP_DIVE_AGENT: TaskSpec(
         # The one place multi-step reasoning genuinely earns its latency.

@@ -577,12 +577,19 @@ async def test_the_global_switch_can_force_reasoning_off(env, memory_cache, monk
 
 
 async def test_a_task_without_a_prompt_fails_loudly(env, memory_cache):
+    """A task declared in the routing table but not yet built raises, and does
+    so *before* a provider is touched.
+
+    The example was ``GRADE_ANSWER`` until Day 16 registered grading prompt v1.
+    ``DEEP_DIVE_AGENT`` is now the longest-lived prompt-less task (plan Phase 9,
+    Day 41), which keeps this test from needing a new subject every phase.
+    """
     env()
     provider = FakeProvider("nvidia", [json_result(PROBE_JSON)])
 
-    with pytest.raises(PromptNotRegisteredError, match="grade_answer"):
+    with pytest.raises(PromptNotRegisteredError, match="deep_dive_agent"):
         await call_structured(
-            TaskName.GRADE_ANSWER,
+            TaskName.DEEP_DIVE_AGENT,
             {},
             ProbeAnswer,
             router=make_router(provider),

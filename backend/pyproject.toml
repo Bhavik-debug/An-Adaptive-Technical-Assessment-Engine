@@ -99,6 +99,12 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 # candidates, Beta-distributed grades, policy exploration. Reproducibility is
 # the requirement; cryptographic strength would actively break it.
 "app/simulation/*" = ["S311"]
+# S311 once more, and for exactly the same reason: the Day-18 eval set draws a
+# stratified question sample and a labelling order from committed seeds. Both
+# must reproduce byte for byte a year later - "which 24 questions are in the
+# dataset?" and "in what order were they labelled?" each have to have one
+# answer. A cryptographic generator would make both unanswerable.
+"app/grading/evalset.py" = ["S311"]
 
 [tool.mypy]
 python_version = "3.12"
