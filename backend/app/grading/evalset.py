@@ -170,6 +170,30 @@ class EvalAnswer(BaseModel):
     labeller_b: str | None = None
     label_source_b: LabelSource | None = None
 
+    #: The **retired Day-18 model pass**, kept rather than overwritten.
+    #:
+    #: Day 18's first labelling sitting filled ``human_score`` with labels an LLM
+    #: assigned against :data:`LABEL_ANCHORS`, flagged honestly as
+    #: ``label_source: "model"``. The human pass needs ``human_score`` back, and
+    #: the choice at that point is to destroy the model pass or to move it here.
+    #:
+    #: It is moved here, for two reasons. The 120 model labels cost real quota to
+    #: produce and are the only thing a Day-19 harness could be developed against
+    #: before human labels existed, so throwing them away would be throwing away
+    #: a working artefact. More importantly, holding both passes on one row makes
+    #: **"how well does a model label agree with a human one?"** a question this
+    #: dataset can answer - see :func:`label_agreement`. That is worth knowing
+    #: before anyone proposes model labelling as a way to skip the 1.5 hours on a
+    #: future set, and it is unanswerable once the column is gone.
+    #:
+    #: These fields are **never** gate-eligible and :func:`gate_eligible` does not
+    #: look at them. They are a preserved measurement, not a ground truth.
+    model_score: int | None = Field(default=None, ge=MIN_LABEL, le=MAX_LABEL)
+    #: Which model assigned :attr:`model_score`. Same pairing rule as the human
+    #: labels: a score needs a claimant, and "some model" is not a claimant when
+    #: the question later becomes whether that model drifted.
+    model_labeller: str | None = None
+
     slice: Slice = "synthetic"
 
     #: Reproducibility. Which builder run produced this row, and the seed that
@@ -202,6 +226,12 @@ class EvalAnswer(BaseModel):
             raise ValueError(f"{self.id}: human_score_b and labeller_b must be set together")
         if (self.human_score_b is None) != (self.label_source_b is None):
             raise ValueError(f"{self.id}: human_score_b and label_source_b must be set together")
+        if (self.model_score is None) != (self.model_labeller is None):
+            raise ValueError(
+                f"{self.id}: model_score and model_labeller must be set together; a "
+                "retired label whose author is unrecorded cannot be compared with "
+                "anything later"
+            )
         return self
 
     @model_validator(mode="after")
@@ -612,6 +642,123 @@ def label_distribution(answers: Sequence[EvalAnswer]) -> dict[int, int]:
     return counts
 
 
+def blind_worklist(
+    answers: Sequence[EvalAnswer],
+    *,
+    questions: dict[str, str],
+    seed: int,
+) -> str:
+    """The labelling worklist, as text: shuffled, and blind by construction.
+
+    Lives here rather than in the script because "this artefact is blind" is a
+    property worth asserting in a test, and a f-string buried in a CLI is
+    trusted instead. It was trusted, and it was wrong - see below.
+
+    Each item carries its **1-based position in the seeded order**, the question
+    and the answer. Nothing else: no ``quality_intent``, no concept split, no
+    expected-concept list, no grader output, and **no row id**.
+
+    **Why the row id is excluded.** Answer ids are allocated sequentially per
+    question x level, so ``(N - 1) mod 5`` recovers ``quality_intent`` exactly:
+    ``eval-0110`` -> 4 -> ``wrong_confident``, ``eval-0048`` -> 2 ->
+    ``partial``. An earlier version of the worklist printed the id, which meant
+    the one artefact advertised as blind handed the labeller the construction
+    intent one subtraction away from plain text. The interactive prompt never
+    showed it; the file did, and the file is what a labelling pass done away
+    from the terminal actually reads.
+
+    Positions are sufficient to apply scores afterwards, because the order is a
+    pure function of ``seed``. Nothing has to be stored to map a position back
+    to a row, so there is no key file to leak either.
+    """
+    order = labelling_order(answers, seed=seed)
+    by_id = {answer.id: answer for answer in answers}
+    blocks = []
+    for position, answer_id in enumerate(order, start=1):
+        row = by_id[answer_id]
+        blocks.append(
+            f"### {position}/{len(order)}\n\n"
+            f"QUESTION\n{questions.get(row.question_id, '(missing)')}\n\n"
+            f"ANSWER\n{row.answer}\n"
+        )
+    return "\n".join(blocks)
+
+
+def model_label_distribution(answers: Sequence[EvalAnswer]) -> dict[int, int]:
+    """The same histogram over the retired Day-18 model pass.
+
+    Reported next to :func:`label_distribution` rather than instead of it: the
+    two distributions being different shapes is the first thing anyone should
+    see before treating one as a stand-in for the other.
+    """
+    counts = dict.fromkeys(range(MIN_LABEL, MAX_LABEL + 1), 0)
+    for answer in answers:
+        if answer.model_score is not None:
+            counts[answer.model_score] += 1
+    return counts
+
+
+def label_agreement(answers: Sequence[EvalAnswer]) -> dict[str, object]:
+    """How closely the current pass-A label and the retired pass agree, row by row.
+
+    Only rows carrying **both** a ``human_score`` and a ``model_score`` count.
+
+    **``sources`` is part of the answer, not metadata.** This function does not
+    require pass A to be human, because the dataset's history is that a model
+    pass was retired here and a *second* pass written into ``human_score``, and a
+    comparison that silently returned ``n: 0`` in that state would be worse than
+    useless - it would read as "no disagreement found". So the sources of both
+    sides are reported alongside the numbers, and the caller is expected to say
+    which comparison it is quoting:
+
+    * ``{"human", "model"}`` - **human versus model.** The useful one. It answers
+      whether model labelling could stand in for the 1.5 hours of human time on a
+      future set.
+    * ``{"model", "model"}`` - **model versus model.** Two passes by the same
+      model family, which is near-self-consistency, not two opinions converging.
+      A high agreement here is evidence of reproducibility and is *not* evidence
+      that either pass is correct. Both passes can be wrong in the same direction
+      for the same reason, and nothing in this number would show it.
+
+    It is not a validation of either pass either way - there is no third opinion
+    here to adjudicate with. ``mean_signed_error`` is the useful half, because a
+    pass that is uniformly one point generous is a different problem from one
+    that is noisy: the first is a correctable bias, the second is not.
+
+    Signed as *retired minus current*: a positive mean means the retired pass was
+    the more generous of the two.
+    """
+    pairs: list[tuple[int, int]] = [
+        (answer.human_score, answer.model_score)
+        for answer in answers
+        if answer.human_score is not None and answer.model_score is not None
+    ]
+    if not pairs:
+        return {"n": 0}
+    sources = sorted(
+        {
+            source
+            for answer in answers
+            if answer.human_score is not None
+            and answer.model_score is not None
+            and (source := answer.label_source) is not None
+        }
+        | {"model"}  # the retired side is a model pass by construction
+    )
+    deltas = [retired - current for current, retired in pairs]
+    return {
+        "n": len(pairs),
+        "sources": sources,
+        "exact": sum(1 for d in deltas if d == 0),
+        "within_one": sum(1 for d in deltas if abs(d) <= 1),
+        "retired_higher": sum(1 for d in deltas if d > 0),
+        "retired_lower": sum(1 for d in deltas if d < 0),
+        "mean_signed_error": sum(deltas) / len(deltas),
+        "mean_absolute_error": sum(abs(d) for d in deltas) / len(deltas),
+        "max_absolute_error": max(abs(d) for d in deltas),
+    }
+
+
 __all__ = [
     "LABEL_ANCHORS",
     "MAX_LABEL",
@@ -624,9 +771,11 @@ __all__ = [
     "LabelSource",
     "QualityIntent",
     "Slice",
+    "blind_worklist",
     "dump_answers",
     "gate_eligible",
     "intent_agreement",
+    "label_agreement",
     "label_distribution",
     "label_sources",
     "labelling_order",
@@ -634,6 +783,7 @@ __all__ = [
     "leaked_omitted_concepts",
     "level_distribution",
     "load_answers",
+    "model_label_distribution",
     "stratified_questions",
     "unachieved_intent",
     "validate_dataset",

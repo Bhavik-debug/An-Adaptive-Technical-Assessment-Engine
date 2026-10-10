@@ -45,6 +45,21 @@ class TaskName(StrEnum):
     #: eval-set builder that routed itself would be the first exception.
     EVAL_ANSWER_SYNTHESIS = "eval_answer_synthesis"
 
+    #: Day 19, plan section 12.2 step 3. Assigns the provisional 0-4 reference
+    #: label the validity harness measures the grader against. **Offline
+    #: tooling**, invoked by `scripts/build_reference_labels.py` and by nothing
+    #: on a turn path.
+    #:
+    #: Three tasks rather than one because they are three different information
+    #: sets, and a task is how this project records what a call was shown. The
+    #: blind pass sees the question and the answer; the concept-aware pass also
+    #: sees the question's expected-concept list; the adjudicator sees two
+    #: rationales. Routing them as one task would make a label's provenance
+    #: unrecoverable from its trace.
+    EVAL_REFERENCE_LABEL = "eval_reference_label"
+    EVAL_REFERENCE_LABEL_CONCEPTS = "eval_reference_label_concepts"
+    EVAL_REFERENCE_LABEL_ADJUDICATE = "eval_reference_label_adjudicate"
+
 
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
@@ -120,6 +135,24 @@ TASK_SPECS: dict[TaskName, TaskSpec] = {
         tier=ModelTier.SMALL_FAST,
         temperature=0.0,
         max_output_tokens=1024,
+    ),
+    # The reference-labelling passes. Temperature 0 on all three: a yardstick
+    # that gives a different reading each time it is applied is not a yardstick,
+    # and determinism is what makes the pass resumable after a rate limit and
+    # re-derivable from the committed artefact rather than only trusted.
+    #
+    # MID tier, matching GRADE_ANSWER. Labelling is the harder of the two jobs -
+    # it is holistic judgement with no concept checklist to lean on - so a
+    # cheaper labeller would make the measured QWK a statement about the
+    # labeller's ceiling rather than about the grader.
+    TaskName.EVAL_REFERENCE_LABEL: TaskSpec(
+        tier=ModelTier.MID, temperature=0.0, max_output_tokens=1024
+    ),
+    TaskName.EVAL_REFERENCE_LABEL_CONCEPTS: TaskSpec(
+        tier=ModelTier.MID, temperature=0.0, max_output_tokens=1024
+    ),
+    TaskName.EVAL_REFERENCE_LABEL_ADJUDICATE: TaskSpec(
+        tier=ModelTier.MID, temperature=0.0, max_output_tokens=1024
     ),
     TaskName.DEEP_DIVE_AGENT: TaskSpec(
         # The one place multi-step reasoning genuinely earns its latency.

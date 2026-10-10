@@ -83,6 +83,28 @@ jobs:
         working-directory: backend
         run: python scripts/validate_question_bank.py
 
+      # Day 20, plan section 12.3: "fails if QWK drops more than 0.05 below the
+      # committed baseline". Plan section 12.3's framing is the reason this is a
+      # CI gate rather than a notebook: "treat prompts as code under test. A
+      # prompt change is a PR; the eval suite is its test; a regression fails
+      # CI."
+      #
+      # It runs in the `static` job, with no services and no provider
+      # credential, because it is **pure arithmetic over committed files**: the
+      # baseline in `evals/baselines/grading_qwk.json` and the grading runs in
+      # `evals/reports/grading/runs.jsonl`. No model is called, so it costs
+      # nothing and cannot be rate-limited - which is what plan section 12.3's
+      # "runs free in ~40 s per PR" requires.
+      #
+      # It is a REGRESSION gate, not the Phase-4 acceptance gate. The baseline
+      # is measured against model-generated provisional reference labels and
+      # says so in its own `notes`; `evalset.gate_eligible()` still decides
+      # acceptance and still returns False. See
+      # `evals/reports/phase4_completion.md`.
+      - name: grading regression gate
+        working-directory: backend
+        run: pytest tests/unit/grading/test_regression_gate.py -q
+
   # -------------------------------------------------------------------------
   # The test suite, against the same Postgres and Redis the app really uses.
   # Plan section 13.10 wants real containers rather than mocks for integration

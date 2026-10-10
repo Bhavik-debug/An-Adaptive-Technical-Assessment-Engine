@@ -94,6 +94,24 @@ PROMPTS: dict[TaskName, PromptTemplate] = {
     TaskName.CONNECTIVITY_PROBE: _CONNECTIVITY_PROBE,
 }
 
+#: Alternate prompt versions for a task, keyed by ``(task, version)``.
+#:
+#: **What this is for, and what it is not.** :data:`PROMPTS` holds the one
+#: *active* prompt per task - the one production uses, which
+#: :func:`register_prompt` refuses to let two modules disagree about. This holds
+#: versions that exist only to be **measured against** the active one.
+#:
+#: Day 19's planned work is "prompt iteration v1 -> v3 against the metric" (plan
+#: section 3's Day-19 row), and plan section 7.4 technique 6 wants a pinned
+#: prompt version "referenced by content hash in every trace, so a quality
+#: regression is attributable to a specific prompt change". Both need more than
+#: one version of a task's prompt to be *addressable at once*, while exactly one
+#: stays the default.
+#:
+#: Registering a variant changes nothing about production behaviour: no caller
+#: reaches a variant unless it passes it explicitly to ``call_structured``.
+PROMPT_VARIANTS: dict[tuple[TaskName, str], PromptTemplate] = {}
+
 
 def register_prompt(template: PromptTemplate) -> PromptTemplate:
     """Let the package that owns a task's *wording* own its prompt.
@@ -138,3 +156,65 @@ def get_prompt(task: TaskName) -> PromptTemplate:
             "it is declared in the routing table but lands in a later phase, or its "
             "owning package has not been imported (see register_prompt)"
         ) from exc
+
+
+def register_prompt_variant(template: PromptTemplate) -> PromptTemplate:
+    """Declare an alternate version of a task's prompt, for evaluation only.
+
+    The active prompt (``PROMPTS``) is untouched, so nothing in production
+    changes: a variant is reachable only by passing it explicitly to
+    ``call_structured(..., prompt=...)``, which the Day-19 harness does and no
+    turn path does.
+
+    Registering is still required rather than optional, for the same reason
+    :func:`register_prompt` exists: a prompt version that is not in a registry
+    cannot be listed, cannot be checked for a duplicated version label, and
+    cannot be found a year later by the version string in a trace.
+
+    Re-registering identical text is a no-op; re-registering *different* text
+    under a version label that is already taken raises, because two prompts
+    claiming to be "v2" of one task makes every measurement attributed to "v2"
+    ambiguous.
+    """
+    key = (template.task, template.version)
+    if template.task in PROMPTS and PROMPTS[template.task].version == template.version:
+        active = PROMPTS[template.task]
+        if active.fingerprint != template.fingerprint:
+            raise ValueError(
+                f"task {template.task.value!r} version {template.version!r} is already the "
+                f"ACTIVE prompt with a different fingerprint ({active.fingerprint} vs "
+                f"{template.fingerprint}); pick a new version label for the variant"
+            )
+        return template
+    existing = PROMPT_VARIANTS.get(key)
+    if existing is not None and existing.fingerprint != template.fingerprint:
+        raise ValueError(
+            f"task {template.task.value!r} already has a variant {template.version!r} "
+            f"({existing.fingerprint}); refusing to replace it with {template.fingerprint}"
+        )
+    PROMPT_VARIANTS[key] = template
+    return template
+
+
+def get_prompt_version(task: TaskName, version: str) -> PromptTemplate:
+    """One named version of a task's prompt: the active one, or a variant."""
+    active = PROMPTS.get(task)
+    if active is not None and active.version == version:
+        return active
+    try:
+        return PROMPT_VARIANTS[(task, version)]
+    except KeyError as exc:
+        known = sorted(prompt_versions(task))
+        raise PromptNotRegisteredError(
+            f"task {task.value!r} has no prompt version {version!r}; known versions: {known}"
+        ) from exc
+
+
+def prompt_versions(task: TaskName) -> list[str]:
+    """Every registered version label for a task, active first."""
+    out = []
+    active = PROMPTS.get(task)
+    if active is not None:
+        out.append(active.version)
+    out.extend(version for (candidate, version) in sorted(PROMPT_VARIANTS) if candidate == task)
+    return out

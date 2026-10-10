@@ -613,3 +613,107 @@ async def test_a_missing_prompt_input_fails_before_any_call(env, memory_cache):
             settings=get_settings(),
         )
     assert provider.call_count == 0
+
+
+# --- the prompt override (Day 19) ------------------------------------------
+
+
+async def test_an_explicit_prompt_overrides_the_registry(env, memory_cache):
+    """Day 19's prompt-version comparison needs two versions addressable at once.
+
+    The registry holds one *active* prompt per task and refuses to let two
+    modules disagree about it, which is right for production and useless for
+    measuring v1 against v3. So ``call_structured`` takes an optional template.
+
+    Asserted on the bytes actually sent, not on the return value: the whole
+    point is that a different prompt reached the provider.
+    """
+    from app.llm.prompts import PromptTemplate
+
+    env()
+    provider = FakeProvider("nvidia", [json_result(PROBE_JSON, provider="nvidia")])
+    variant = PromptTemplate(
+        task=TaskName.CONNECTIVITY_PROBE,
+        version="v99-test",
+        system="A SYSTEM MESSAGE FROM THE VARIANT",
+        user="echo $token",
+        required_inputs=("token",),
+    )
+
+    _, meta = await call_structured(
+        TaskName.CONNECTIVITY_PROBE,
+        {"token": "abc123"},
+        ProbeAnswer,
+        router=make_router(provider),
+        cache=memory_cache,
+        settings=get_settings(),
+        prompt=variant,
+    )
+
+    sent = provider.calls[-1]
+    assert any("A SYSTEM MESSAGE FROM THE VARIANT" in m.content for m in sent.messages)
+    # The variant's own version and fingerprint reach the metadata, so a run
+    # graded under a variant is self-describing in a trace or an eval artefact.
+    assert meta.prompt_version == "v99-test"
+    assert meta.prompt_fingerprint == variant.fingerprint
+
+
+async def test_omitting_the_prompt_uses_the_registered_one(env, memory_cache):
+    """The default path is unchanged: every turn path passes nothing."""
+    from app.llm.prompts import get_prompt
+
+    env()
+    provider = FakeProvider("nvidia", [json_result(PROBE_JSON, provider="nvidia")])
+
+    _, meta = await call_structured(
+        TaskName.CONNECTIVITY_PROBE,
+        {"token": "abc123"},
+        ProbeAnswer,
+        router=make_router(provider),
+        cache=memory_cache,
+        settings=get_settings(),
+    )
+
+    active = get_prompt(TaskName.CONNECTIVITY_PROBE)
+    assert meta.prompt_version == active.version
+    assert meta.prompt_fingerprint == active.fingerprint
+
+
+async def test_two_prompt_versions_produce_different_cache_keys(env, memory_cache):
+    """Otherwise v3's first answer would be served v1's cached response.
+
+    The prompt fingerprint is part of the cache key (Day 3), so this should
+    hold by construction - but a prompt-version comparison is exactly the
+    situation where a shared key would silently invalidate the whole result,
+    so it is asserted.
+    """
+    from app.llm.prompts import PromptTemplate, get_prompt
+
+    env()
+    provider = FakeProvider(
+        "nvidia",
+        [json_result(PROBE_JSON, provider="nvidia"), json_result(PROBE_JSON, provider="nvidia")],
+    )
+    router = make_router(provider)
+    variant = PromptTemplate(
+        task=TaskName.CONNECTIVITY_PROBE,
+        version="v98-test",
+        system=get_prompt(TaskName.CONNECTIVITY_PROBE).system + " (variant)",
+        user=get_prompt(TaskName.CONNECTIVITY_PROBE).user,
+        required_inputs=("token",),
+    )
+
+    for prompt in (None, variant):
+        await call_structured(
+            TaskName.CONNECTIVITY_PROBE,
+            {"token": "abc123"},
+            ProbeAnswer,
+            router=router,
+            cache=memory_cache,
+            settings=get_settings(),
+            prompt=prompt,
+        )
+
+    # Two provider calls, not one: the second was not served from the first's
+    # cache entry.
+    assert len(provider.calls) == 2

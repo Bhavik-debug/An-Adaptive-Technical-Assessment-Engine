@@ -1,0 +1,13 @@
+{
+  "baseline_version": 1,
+  "grader_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "n_items": 120,
+  "notes": "Day-20 initial baseline. QWK of the v1 grading prompt against the Day-19 provisional model-generated reference labels (reference_labels.jsonl, blind pass, rubric labels-v2) over all 120 answers. PROVISIONAL: the reference labels are model-generated, and the reference labeller shares a model with the grader, so this number is a regression anchor and NOT Phase-4 acceptance evidence. It exists so that a prompt or scoring change which degrades agreement fails CI on the PR that caused it.",
+  "prompt_fingerprint": "ee1b9c3bf71e",
+  "prompt_version": "v1",
+  "qwk": 0.4252100840336135,
+  "reference_artifact": "evals/datasets/grading/reference_labels.jsonl",
+  "reference_label_source": "model",
+  "reference_pass": "blind",
+  "reference_rubric_version": "labels-v2"
+}

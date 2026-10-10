@@ -35,7 +35,7 @@ from app.config import Settings, get_settings
 from app.llm.cache import CachedCall, NullCache, ResponseCache, cache_key
 from app.llm.errors import SchemaValidationFailedError
 from app.llm.pricing import price_call
-from app.llm.prompts import get_prompt
+from app.llm.prompts import PromptTemplate, get_prompt
 from app.llm.router import ProviderRouter
 from app.llm.structured import (
     JsonExtractionError,
@@ -118,6 +118,7 @@ async def call_structured(
     router: ProviderRouter | None = None,
     cache: ResponseCache | None = None,
     settings: Settings | None = None,
+    prompt: PromptTemplate | None = None,
 ) -> tuple[SchemaT, CallMeta]:
     """Run one task through the chokepoint and return a validated object.
 
@@ -147,6 +148,7 @@ async def call_structured(
                 router=router,
                 cache=cache,
                 settings=settings,
+                prompt=prompt,
             )
         except Exception as exc:
             # Every failure path - no provider answered, nothing validated, a
@@ -167,6 +169,7 @@ async def _run_call(
     router: ProviderRouter | None,
     cache: ResponseCache | None,
     settings: Settings | None,
+    prompt: PromptTemplate | None = None,
 ) -> tuple[SchemaT, CallMeta]:
     """The chokepoint itself. See ``call_structured`` for the contract."""
     settings = settings or get_settings()
@@ -179,7 +182,12 @@ async def _run_call(
         cache = get_response_cache() if cache is None else cache
 
     spec = get_task_spec(task)
-    prompt = get_prompt(task)
+    # An explicit template overrides the registry's active prompt. Used only by
+    # the Day-19 prompt-version comparison; every turn path passes None and gets
+    # the registered prompt. The version and fingerprint that reach `CallMeta`
+    # come from whichever template is used, so a run graded under a variant is
+    # self-describing rather than needing to be remembered.
+    prompt = prompt if prompt is not None else get_prompt(task)
     schema_json = schema_spec(schema)
     effective_temperature = spec.temperature if temperature is None else temperature
 

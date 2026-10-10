@@ -49,6 +49,7 @@ from app.grading.scoring import ScoreBreakdown, score_answer
 from app.llm.cache import ResponseCache
 from app.llm.client import CallMeta, call_structured
 from app.llm.errors import LLMError
+from app.llm.prompts import PromptTemplate
 from app.llm.router import ProviderRouter
 from app.llm.tasks import TaskName
 from app.llm.types import ANONYMOUS_TRACE, TraceCtx
@@ -164,6 +165,8 @@ async def grade_answer(
     router: ProviderRouter | None = None,
     cache: ResponseCache | None = None,
     settings: Settings | None = None,
+    prompt: PromptTemplate | None = None,
+    recheck_prompt: PromptTemplate | None = None,
 ) -> GradeResult:
     """Grade one answer end to end. Plan section 7.2, all four passes.
 
@@ -198,6 +201,7 @@ async def grade_answer(
         router=router,
         cache=cache,
         settings=settings,
+        prompt=prompt,
     )
     check_judgment(
         judgment,
@@ -251,6 +255,12 @@ async def grade_answer(
         router=router,
         cache=cache,
         settings=settings,
+        # The gate is self-consistency: the re-grade must ask the *identical*
+        # question (see GRADING_RECHECK_PROMPT_V1's docstring). When the caller
+        # is evaluating a prompt variant, "identical" means identical to the
+        # variant under test, so the override is carried through rather than
+        # silently reverting the re-grades to the active v1 text.
+        recheck_prompt=recheck_prompt,
     )
     calls.extend(meta for _, _, _, meta in samples)
     failed = REGRADE_SAMPLES - len(samples)
@@ -298,6 +308,7 @@ async def _regrade(
     router: ProviderRouter | None,
     cache: ResponseCache | None,
     settings: Settings | None,
+    recheck_prompt: PromptTemplate | None = None,
 ) -> list[tuple[GradeJudgment, VerifiedJudgment, ScoreBreakdown, CallMeta]]:
     """Sample ``GRADE_RECHECK`` n times and score each one, in code.
 
@@ -323,6 +334,7 @@ async def _regrade(
             router=router,
             cache=cache,
             settings=settings,
+            prompt=recheck_prompt,
         )
         for _ in range(REGRADE_SAMPLES)
     ]

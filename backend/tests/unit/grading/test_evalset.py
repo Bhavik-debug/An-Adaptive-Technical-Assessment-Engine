@@ -41,9 +41,11 @@ from app.grading.evalset import (
     TARGET_ANSWERS,
     TARGET_QUESTIONS,
     EvalAnswer,
+    blind_worklist,
     dump_answers,
     gate_eligible,
     intent_agreement,
+    label_agreement,
     label_distribution,
     label_sources,
     labelling_order,
@@ -51,6 +53,7 @@ from app.grading.evalset import (
     leaked_omitted_concepts,
     level_distribution,
     load_answers,
+    model_label_distribution,
     stratified_questions,
     unachieved_intent,
     validate_dataset,
@@ -934,28 +937,384 @@ class TestTheCommittedDatasetsLabels:
     def test_the_wrong_confident_level_largely_did_not_comply(self, dataset):
         """A measured defect, pinned so it cannot be forgotten.
 
-        18 of 24 ``wrong_confident`` answers read as solid to a blind labeller:
-        the generator was asked for at least two clear factual errors and mostly
-        wrote a correct answer instead. The bound is loose and deliberately
-        asserts the *defect*, not its absence - if a rebuild fixes it this test
-        fails, and the documentation gets corrected rather than silently
-        drifting out of date.
+        19 of 24 ``wrong_confident`` answers read as solid to a blind labeller
+        (the retired first pass put it at 18): the generator was asked for at
+        least two clear factual errors and mostly wrote a correct answer
+        instead. The bound is loose and deliberately asserts the *defect*, not
+        its absence - if a rebuild fixes it this test fails, and the
+        documentation gets corrected rather than silently drifting out of date.
         """
         flagged = unachieved_intent(dataset)
         assert len(flagged) >= 12, (
             "wrong_confident compliance improved; re-measure and update the "
-            "dataset README, which currently documents 18/24 as non-compliant"
+            "dataset README, which currently documents 19/24 as non-compliant"
         )
 
     def test_the_label_distribution_is_compressed_and_that_is_recorded(self, dataset):
         """Day 19 must know this before quoting a QWK.
 
-        87% of the labels are 3 or 4 and no answer scored 1. A quadratically
-        weighted agreement statistic over a distribution this narrow is weak and
-        unstable, and that is a fact about the dataset rather than about any
-        grader measured on it.
+        84% of the labels are 3 or 4. A quadratically weighted agreement
+        statistic over a distribution this narrow is weak and unstable, and that
+        is a fact about the dataset rather than about any grader measured on it.
+
+        The bound is ``> 0.8`` and the measured value is 0.842, so this test has
+        about five rows of headroom. That is deliberately *not* loosened: if a
+        relabelling pass moves the distribution enough to fail it, the dataset's
+        central documented weakness has changed and the README has to be
+        rewritten rather than the threshold relaxed.
         """
         distribution = label_distribution(dataset)
         assert sum(distribution.values()) == TARGET_ANSWERS
         top_two = distribution[3] + distribution[4]
         assert top_two / TARGET_ANSWERS > 0.8, "the compression has changed; re-document it"
+
+    def test_the_bottom_of_the_scale_is_still_nearly_unused(self, dataset):
+        """The compression's sharper edge, and the reason a QWK here is fragile.
+
+        Scores of 0 and 1 together account for 2 of 120 rows. The set's effective
+        range is 2-4 on a 0-4 scale, so the quadratic weighting in a QWK has
+        almost nothing to work with at the bottom and a single row moving between
+        0 and 2 swings the statistic. Asserted as a *fact about this dataset* so
+        that a rebuild which actually produces bad answers fails here and gets
+        documented.
+        """
+        distribution = label_distribution(dataset)
+        assert distribution[0] + distribution[1] <= 4, (
+            "the bottom of the scale is now populated; re-measure the QWK "
+            "stability warning in the dataset README"
+        )
+        assert distribution[2] + distribution[3] + distribution[4] >= 116
+
+
+# ---------------------------------------------------------------------------
+# The retired model pass
+# ---------------------------------------------------------------------------
+
+
+class TestTheRetiredModelPass:
+    """``model_score`` holds a pass that used to live in ``human_score``.
+
+    Day 18 labelled all 120 rows with an LLM and filed them honestly as
+    ``label_source: "model"``. A later pass needed ``human_score`` back, so the
+    first pass was moved aside rather than deleted. These tests are about the
+    two properties that make that move safe: the retired pass is still a
+    complete, attributed pass, and it cannot be mistaken for a human one.
+    """
+
+    def test_a_retired_score_needs_a_claimant(self):
+        with pytest.raises(ValidationError, match="model_labeller must be set together"):
+            answer_row(1, "db-x-001", "partial", model_score=3)
+
+    def test_a_retired_claimant_needs_a_score(self):
+        with pytest.raises(ValidationError, match="model_labeller must be set together"):
+            answer_row(1, "db-x-001", "partial", model_labeller="some-model")
+
+    def test_a_retired_pass_is_off_the_zero_to_four_scale_like_any_other(self):
+        with pytest.raises(ValidationError):
+            answer_row(1, "db-x-001", "partial", model_score=5, model_labeller="m")
+
+    def test_the_retired_pass_never_makes_a_row_gate_eligible(self):
+        """The whole reason the field is separate.
+
+        A row holding only a retired model score is unlabelled as far as the
+        Phase-4 gate is concerned, and a row whose pass A is also a model label
+        stays ineligible however many passes have accumulated on it.
+        """
+        retired_only = [
+            answer_row(n, "db-x-001", level, model_score=4, model_labeller="m")
+            for n, level in enumerate(QUALITY_LEVELS, start=1)
+        ]
+        assert all(not row.is_labelled for row in retired_only)
+        assert all(not row.is_human_labelled for row in retired_only)
+        assert gate_eligible(retired_only * 24) is False
+
+        two_model_passes = [
+            row.model_copy(
+                update={"human_score": 4, "labeller": "another-model", "label_source": "model"}
+            )
+            for row in retired_only
+        ]
+        assert gate_eligible(two_model_passes * 24) is False, (
+            "two model passes are still not a human pass; stacking provisional "
+            "labels must never add up to the gate"
+        )
+
+    def test_model_label_distribution_reads_the_retired_field_only(self):
+        rows = [
+            answer_row(
+                1,
+                "db-x-001",
+                "good",
+                human_score=2,
+                labeller="A",
+                label_source="human",
+                model_score=4,
+                model_labeller="m",
+            ),
+            answer_row(2, "db-x-001", "partial", model_score=4, model_labeller="m"),
+        ]
+        assert model_label_distribution(rows) == {0: 0, 1: 0, 2: 0, 3: 0, 4: 2}
+        assert label_distribution(rows) == {0: 0, 1: 0, 2: 1, 3: 0, 4: 0}
+
+
+class TestLabelAgreement:
+    """Pass A against the retired pass - and which comparison it is.
+
+    ``sources`` is the load-bearing key. The same arithmetic means two very
+    different things depending on who produced each side, and a report that
+    quoted a model-vs-model number as human-vs-model would be claiming the
+    dataset had been validated when it had only been reproduced.
+    """
+
+    @staticmethod
+    def _pair(number: int, current: int, retired: int, source: str = "model") -> EvalAnswer:
+        return answer_row(
+            number,
+            "db-x-001",
+            "good",
+            human_score=current,
+            labeller="pass-a",
+            label_source=source,
+            model_score=retired,
+            model_labeller="retired-model",
+        )
+
+    def test_it_is_empty_without_both_passes(self):
+        assert label_agreement([])["n"] == 0
+        assert label_agreement([answer_row(1, "db-x-001", "good")])["n"] == 0
+        only_retired = answer_row(1, "db-x-001", "good", model_score=3, model_labeller="m")
+        assert label_agreement([only_retired])["n"] == 0
+
+    def test_it_counts_a_model_versus_model_comparison_rather_than_returning_zero(self):
+        """The bug this key exists to prevent.
+
+        An earlier version required pass A to be human, so in the dataset's
+        actual state - two model passes - it returned ``n: 0``, which reads as
+        "no disagreement found" rather than "not the comparison you think".
+        """
+        report = label_agreement([self._pair(1, 3, 3), self._pair(2, 2, 3)])
+        assert report["n"] == 2
+        assert report["sources"] == ["model"]
+
+    def test_a_human_pass_a_is_named_as_such(self):
+        report = label_agreement([self._pair(1, 3, 3, source="human")])
+        assert report["sources"] == ["human", "model"]
+
+    def test_the_sign_is_retired_minus_current(self):
+        """A positive mean means the retired pass was the more generous."""
+        report = label_agreement([self._pair(1, 2, 4)])
+        assert report["mean_signed_error"] == 2
+        assert report["retired_higher"] == 1
+        assert report["retired_lower"] == 0
+
+    def test_exact_and_within_one_are_counted_apart(self):
+        rows = [self._pair(1, 3, 3), self._pair(2, 3, 4), self._pair(3, 0, 4)]
+        report = label_agreement(rows)
+        assert report["exact"] == 1
+        assert report["within_one"] == 2
+        assert report["max_absolute_error"] == 4
+        assert report["mean_absolute_error"] == pytest.approx(5 / 3)
+
+
+@pytest.mark.skipif(not ANSWERS_PATH.exists(), reason="dataset not built in this checkout")
+class TestTheCommittedDatasetsRetiredPass:
+    @pytest.fixture(scope="class")
+    def dataset(self) -> list[EvalAnswer]:
+        return load_answers(ANSWERS_PATH)
+
+    def test_every_row_still_carries_the_retired_pass(self, dataset):
+        """The move must not have dropped any of the 120 original labels."""
+        assert sum(1 for row in dataset if row.model_score is not None) == TARGET_ANSWERS
+        for row in dataset:
+            assert row.model_labeller, row.id
+
+    def test_the_two_passes_were_produced_by_different_runs(self, dataset):
+        """Pass A and the retired pass must not claim the same author.
+
+        Not a strong independence check - it cannot be, since both are models -
+        but a row whose two passes carry one labeller string is a row where
+        something copied a column instead of labelling.
+        """
+        for row in dataset:
+            assert row.labeller != row.model_labeller, row.id
+
+    def test_the_set_is_still_not_gate_eligible_with_two_model_passes(self, dataset):
+        assert gate_eligible(dataset) is False
+        assert label_sources(dataset)["human"] == 0
+        assert all(row.label_source == "model" for row in dataset)
+
+    def test_the_two_passes_agree_closely_which_is_reproducibility_not_validation(self, dataset):
+        """Measured, and pinned with its interpretation attached.
+
+        The two passes agree exactly on 90 of 120 rows and never differ by more
+        than one point. They were produced by the same model family, so this is
+        evidence that the anchors are applied reproducibly and is **not**
+        evidence that either pass is right: both can be wrong in the same
+        direction for the same reason and nothing here would show it.
+        """
+        report = label_agreement(dataset)
+        assert report["n"] == TARGET_ANSWERS
+        assert report["sources"] == ["model"], (
+            "a human pass has appeared; this test's interpretation no longer "
+            "applies and the dataset README has to be rewritten"
+        )
+        assert report["max_absolute_error"] <= 1
+        assert report["exact"] >= 80
+        assert abs(report["mean_signed_error"]) < 0.25, "one pass has drifted generous"
+
+
+class TestTheBlindWorklist:
+    """The labelling artefact, and the one property it exists to have.
+
+    This is a regression suite for a real defect: the worklist used to print the
+    row id, and ``(N - 1) mod 5`` decodes ``quality_intent`` from an answer id
+    exactly. The artefact advertised as blind was one subtraction from telling
+    the labeller what the generator had been told to produce.
+    """
+
+    @staticmethod
+    def _rows() -> list[EvalAnswer]:
+        rows = []
+        number = 1
+        for question in ("db-x-001", "db-x-002"):
+            for level in QUALITY_LEVELS:
+                rows.append(
+                    answer_row(
+                        number,
+                        question,
+                        level,
+                        answer=f"The answer for {question} at the {level} level, long enough.",
+                    )
+                )
+                number += 1
+        return rows
+
+    def _worklist(self, seed: int = 8021) -> str:
+        rows = self._rows()
+        questions = {
+            "db-x-001": "What does the first question ask about?",
+            "db-x-002": "What does the second question ask about?",
+        }
+        return blind_worklist(rows, questions=questions, seed=seed)
+
+    def test_it_carries_no_row_ids(self):
+        """The defect itself. An id is an encoded ``quality_intent``."""
+        text = self._worklist()
+        for row in self._rows():
+            assert row.id not in text, f"{row.id} leaked into the worklist"
+        assert "eval-" not in text
+
+    def test_each_block_is_exactly_a_position_a_question_and_an_answer(self):
+        """The blinding check that actually holds: structural, not lexical.
+
+        Scanning the text for the word "partial" does not work - answer prose
+        says "a partial update" and question prose says "excellent" - and a
+        word blacklist over free text is a false-positive machine that would be
+        silenced rather than fixed the first time it fired.
+
+        So the property is asserted as *exhaustiveness* instead: each block is
+        rebuilt from the three things allowed in it, and compared. Any field
+        that got added to the worklist - ``quality_intent``, the concept split,
+        a grader score, the row id - makes the reconstruction unequal, whatever
+        words it happens to contain.
+        """
+        rows = self._rows()
+        order = labelling_order(rows, seed=8021)
+        by_id = {row.id: row for row in rows}
+        questions = {
+            "db-x-001": "What does the first question ask about?",
+            "db-x-002": "What does the second question ask about?",
+        }
+        expected = "\n".join(
+            f"### {position}/{len(order)}\n\n"
+            f"QUESTION\n{questions[by_id[answer_id].question_id]}\n\n"
+            f"ANSWER\n{by_id[answer_id].answer}\n"
+            for position, answer_id in enumerate(order, start=1)
+        )
+        assert self._worklist() == expected
+
+    def test_no_field_name_from_the_record_is_printed(self):
+        """A cheap second net, over field *names* rather than their values.
+
+        Compound field names are not English, so unlike the level names they
+        cannot turn up in answer prose by accident. Short ones can and do -
+        ``id`` is a substring of "confident" - so names under four characters
+        are skipped here rather than papered over with a word-boundary regex:
+        the row id has its own test above, and the reconstruction test covers
+        every field exhaustively regardless of how its name spells.
+        """
+        text = self._worklist()
+        for field in EvalAnswer.model_fields:
+            if field == "answer":  # the one field whose value is meant to be there
+                continue
+            if len(field) < 4:
+                continue
+            assert field not in text, f"{field} leaked into the worklist"
+
+    def test_an_answer_id_really_does_encode_its_level(self):
+        """Why the id had to go, asserted rather than asserted in a comment.
+
+        If this ever fails, the allocation convention changed and the blinding
+        argument above needs rewriting - not deleting.
+        """
+        for row in self._rows():
+            number = int(row.id.split("-")[1])
+            assert QUALITY_LEVELS[(number - 1) % len(QUALITY_LEVELS)] == row.quality_intent
+
+    def test_it_holds_every_answer_once_with_its_own_question(self):
+        text = self._worklist()
+        rows = self._rows()
+        assert text.count("### ") == len(rows)
+        for row in rows:
+            assert row.answer in text
+
+    def test_positions_follow_the_seeded_order_so_scores_can_be_applied_back(self):
+        """What makes a worklist without ids usable.
+
+        Position N must be the Nth id in ``labelling_order`` for the same seed,
+        because that is the only thing mapping a score back to a row once the id
+        is gone. No key file, no stored mapping - just the committed seed.
+        """
+        rows = self._rows()
+        order = labelling_order(rows, seed=8021)
+        by_id = {row.id: row for row in rows}
+        blocks = [b for b in self._worklist().split("### ") if b.strip()]
+        assert len(blocks) == len(order)
+        for index, block in enumerate(blocks):
+            assert block.startswith(f"{index + 1}/{len(order)}")
+            assert by_id[order[index]].answer in block
+
+    def test_a_different_seed_gives_a_different_worklist(self):
+        assert self._worklist(seed=8021) != self._worklist(seed=1)
+
+    def test_it_is_reproducible_for_a_seed(self):
+        assert self._worklist() == self._worklist()
+
+
+@pytest.mark.skipif(not ANSWERS_PATH.exists(), reason="dataset not built in this checkout")
+class TestTheCommittedDatasetsWorklist:
+    def test_the_real_worklist_leaks_nothing(self):
+        """The same checks against the 120 committed rows and the real bank.
+
+        Reconstructed from position, question text and answer text alone, so a
+        leaked field fails here on the artefact a labeller would really read.
+        """
+        rows = load_answers(ANSWERS_PATH)
+        loaded, errors = load_bank()
+        if errors:
+            pytest.skip("the question bank does not load in this checkout")
+        questions = {item.item.id: item.item.text for item in loaded}
+        text = blind_worklist(rows, questions=questions, seed=8021)
+        order = labelling_order(rows, seed=8021)
+        by_id = {row.id: row for row in rows}
+
+        expected = "\n".join(
+            f"### {position}/{len(order)}\n\n"
+            f"QUESTION\n{questions[by_id[answer_id].question_id]}\n\n"
+            f"ANSWER\n{by_id[answer_id].answer}\n"
+            for position, answer_id in enumerate(order, start=1)
+        )
+        assert text == expected
+        assert "eval-" not in text
+        assert "(missing)" not in text, "a worklist item has no question text"
+        assert text.count("### ") == TARGET_ANSWERS

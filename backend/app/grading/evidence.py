@@ -43,7 +43,13 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
-from app.grading.schema import ConceptJudgment, ConceptLabel, GradeJudgment
+from app.grading.schema import (
+    AnswerError,
+    ConceptJudgment,
+    ConceptLabel,
+    ErrorSeverity,
+    GradeJudgment,
+)
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +101,30 @@ class EvidenceCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class ErrorCheck:
+    """What happened to one flagged error's claim - Day 20.
+
+    The same treatment ``EvidenceCheck`` gives a concept span, for the same
+    reason. ``AnswerError.claim`` is documented as "the incorrect claim, **as
+    the candidate made it**", so it is a quotation, and a quotation that is not
+    in the answer is a fabrication.
+
+    This matters arithmetically rather than cosmetically: a ``major`` error
+    removes 0.15 from the score and a ``minor`` 0.05 (plan section 7.2), so an
+    invented claim is a real penalty applied for something the candidate never
+    said.
+    """
+
+    claim_chars: int
+    severity: ErrorSeverity
+    match: EvidenceMatch
+
+    @property
+    def was_dropped(self) -> bool:
+        return not self.match.is_credited
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedJudgment:
     """A judgment after verification, with the original kept beside it.
 
@@ -107,6 +137,9 @@ class VerifiedJudgment:
     judgment: GradeJudgment
     original: GradeJudgment
     checks: tuple[EvidenceCheck, ...]
+    #: One per flagged error, in the order the model returned them. Empty when
+    #: the model flagged no errors, which is the common case.
+    error_checks: tuple[ErrorCheck, ...] = ()
 
     @property
     def downgraded_keys(self) -> tuple[str, ...]:
@@ -119,6 +152,33 @@ class VerifiedJudgment:
     @property
     def any_fabricated(self) -> bool:
         return self.fabrication_count > 0
+
+    @property
+    def dropped_error_count(self) -> int:
+        """Flagged errors whose claim was not in the answer - Day 20.
+
+        Counted separately from :attr:`fabrication_count` rather than folded
+        into it, because the two have opposite signs for the candidate: a
+        fabricated *span* removes credit the model tried to give, a fabricated
+        *claim* removes a penalty the model tried to apply. A single "the model
+        made something up" counter would net them off and hide both.
+        """
+        return sum(1 for check in self.error_checks if check.was_dropped)
+
+    @property
+    def dropped_penalty(self) -> float:
+        """How much score the dropped claims would have cost. Reporting only.
+
+        Reads the same two constants the scorer uses, so a report cannot quote a
+        penalty magnitude that disagrees with the arithmetic that was applied.
+        """
+        from app.grading.scoring import MAJOR_ERROR_PENALTY, MINOR_ERROR_PENALTY
+
+        return sum(
+            MAJOR_ERROR_PENALTY if check.severity == "major" else MINOR_ERROR_PENALTY
+            for check in self.error_checks
+            if check.was_dropped
+        )
 
 
 def _collapse_whitespace(text: str) -> str:
@@ -223,12 +283,59 @@ def verify_evidence(judgment: GradeJudgment, *, answer_text: str) -> VerifiedJud
         )
         concepts.append(ConceptJudgment(key=concept.key, label=DOWNGRADE_TO, evidence=None))
 
-    corrected = judgment.model_copy(update={"concepts": concepts})
-    return VerifiedJudgment(judgment=corrected, original=judgment, checks=tuple(checks))
+    # Day 20: the same substring check, applied to the error list.
+    #
+    # **Why this was missing and why it mattered.** Day 16 built the error list
+    # and Day 17 built the penalty that reads it; nothing ever checked that a
+    # flagged claim was in the answer. Day 19's length-bias probe is what
+    # surfaced it: appending 207 words of contentless filler made the grader
+    # flag *major* errors on two answers whose substantive text had not
+    # changed, costing 0.15 each. Both claims were quotations of sentences the
+    # candidate never wrote - "wrapping the two statements in a transaction is
+    # by itself sufficient" and "equal counts of openers and closers means the
+    # string is balanced". Measured over the probe's 24 pairs, 5 of 8 flagged
+    # claims were not in the text they were flagged against, including both
+    # majors.
+    #
+    # A dropped error is *not* a judgement that the answer is correct. It is a
+    # refusal to penalise a candidate for a sentence that cannot be shown to
+    # them, which is the same standard ``verify_span`` already applies to
+    # credit. Credit and penalty are now symmetric: both require a quotation
+    # that exists.
+    error_checks: list[ErrorCheck] = []
+    errors: list[AnswerError] = []
+    for error in judgment.errors:
+        match = verify_span(error.claim, answer_text)
+        error_checks.append(
+            ErrorCheck(claim_chars=len(error.claim), severity=error.severity, match=match)
+        )
+        if match.is_credited:
+            errors.append(error)
+            continue
+        log.warning(
+            "grading error claim not found in the answer; dropping the penalty",
+            extra={
+                # Lengths and severity, never the claim text: plan section 14.1
+                # keeps candidate content out of the logs, and a fabricated
+                # claim is still assembled from it.
+                "grading.error_severity": error.severity,
+                "grading.claim_chars": len(error.claim),
+                "grading.answer_chars": len(answer_text),
+            },
+        )
+
+    corrected = judgment.model_copy(update={"concepts": concepts, "errors": errors})
+    return VerifiedJudgment(
+        judgment=corrected,
+        original=judgment,
+        checks=tuple(checks),
+        error_checks=tuple(error_checks),
+    )
 
 
 __all__ = [
     "DOWNGRADE_TO",
+    "ErrorCheck",
     "EvidenceCheck",
     "EvidenceMatch",
     "VerifiedJudgment",

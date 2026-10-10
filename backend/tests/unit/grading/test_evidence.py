@@ -421,3 +421,166 @@ class TestItVerifiesAgainstTheTextTheModelSaw:
         assert verify_span("hello world", graded_answer_text("   hello world   ")) is (
             EvidenceMatch.EXACT
         )
+
+
+# ---------------------------------------------------------------------------
+# Error-claim verification - Day 20
+# ---------------------------------------------------------------------------
+
+
+class TestErrorClaimVerification:
+    """A penalty needs a quotation, for the same reason credit does.
+
+    ``AnswerError.claim`` is documented as "the incorrect claim, **as the
+    candidate made it**" - a quotation. Day 16 built the field and Day 17 built
+    the 0.15/0.05 penalty that reads it; nothing checked the quotation existed
+    until Day 19's length-bias probe found the grader flagging *major* errors on
+    answers whose substantive text had not changed.
+
+    Credit and penalty are now symmetric: both require a span that is really in
+    the answer.
+    """
+
+    def test_a_claim_that_is_in_the_answer_is_kept(self):
+        payload = judgment_payload(
+            errors=[{"claim": "keep LRU with a 4 GB memory cap", "severity": "minor"}]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert len(verified.judgment.errors) == 1
+        assert verified.dropped_error_count == 0
+        assert verified.error_checks[0].match is EvidenceMatch.EXACT
+
+    def test_a_claim_that_is_not_in_the_answer_is_dropped(self):
+        payload = judgment_payload(
+            errors=[
+                {"claim": "Redis offers full ACID transactions", "severity": "major"},
+            ]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert verified.judgment.errors == []
+        assert verified.dropped_error_count == 1
+        assert verified.error_checks[0].match is EvidenceMatch.FABRICATED
+
+    def test_dropping_a_major_claim_removes_its_penalty_from_the_score(self):
+        """The arithmetic, end to end. This is what the probe was measuring."""
+        with_error = judgment_payload(
+            errors=[{"claim": "a sentence the candidate never wrote at all", "severity": "major"}]
+        )
+        without = judgment_payload(errors=[])
+
+        fabricated = verify_evidence(GradeJudgment.model_validate(with_error), answer_text=ANSWER)
+        clean = verify_evidence(GradeJudgment.model_validate(without), answer_text=ANSWER)
+
+        assert (
+            score_answer(fabricated.judgment, expected_concepts=CONCEPTS).score
+            == score_answer(clean.judgment, expected_concepts=CONCEPTS).score
+        )
+        assert fabricated.dropped_penalty == pytest.approx(0.15)
+
+    def test_a_real_error_still_costs_what_it_always_did(self):
+        """The fix must not disarm the penalty for errors that are really there."""
+        real = judgment_payload(
+            errors=[{"claim": "keep LRU with a 4 GB memory cap", "severity": "major"}]
+        )
+        none = judgment_payload(errors=[])
+        with_real = verify_evidence(GradeJudgment.model_validate(real), answer_text=ANSWER)
+        without = verify_evidence(GradeJudgment.model_validate(none), answer_text=ANSWER)
+
+        penalised = score_answer(with_real.judgment, expected_concepts=CONCEPTS).score
+        clean = score_answer(without.judgment, expected_concepts=CONCEPTS).score
+        assert penalised < clean
+        assert clean - penalised == pytest.approx(0.15)
+        assert with_real.dropped_error_count == 0
+
+    def test_mixed_claims_keep_the_real_one_and_drop_the_invented_one(self):
+        payload = judgment_payload(
+            errors=[
+                {"claim": "keep LRU with a 4 GB memory cap", "severity": "minor"},
+                {"claim": "asserts that a TTL alone guarantees correctness", "severity": "major"},
+            ]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert [e.claim for e in verified.judgment.errors] == ["keep LRU with a 4 GB memory cap"]
+        assert verified.dropped_error_count == 1
+        assert verified.dropped_penalty == pytest.approx(0.15)
+
+    def test_whitespace_normalisation_applies_to_claims_too(self):
+        """A model that re-wrapped a line has not fabricated anything.
+
+        The same documented second attempt ``verify_span`` makes for concept
+        spans, and for the same reason - the answer goes out inside a fenced
+        block and comes back re-quoted.
+        """
+        rewrapped = "keep LRU with a\n4 GB memory cap"
+        payload = judgment_payload(errors=[{"claim": rewrapped, "severity": "minor"}])
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert verified.dropped_error_count == 0
+        assert verified.error_checks[0].match is EvidenceMatch.WHITESPACE_NORMALISED
+
+    def test_the_original_judgment_still_shows_what_the_model_said(self):
+        """A report that showed only the corrected version would hide the fabrication."""
+        payload = judgment_payload(
+            errors=[{"claim": "an invented claim about the answer", "severity": "major"}]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert len(verified.original.errors) == 1
+        assert verified.judgment.errors == []
+
+    def test_no_errors_means_no_checks_and_no_dropped_penalty(self):
+        verified = verify_evidence(
+            GradeJudgment.model_validate(judgment_payload(errors=[])), answer_text=ANSWER
+        )
+        assert verified.error_checks == ()
+        assert verified.dropped_error_count == 0
+        assert verified.dropped_penalty == 0.0
+
+    def test_the_corrected_judgment_is_still_a_valid_judgment(self):
+        """It gets stored and re-scored, so it has to survive revalidation."""
+        payload = judgment_payload(
+            errors=[{"claim": "something that is not in the answer", "severity": "minor"}]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        GradeJudgment.model_validate(verified.judgment.model_dump())
+
+    def test_a_dropped_claim_is_logged_without_the_candidate_text(self, caplog):
+        """Plan section 14.1: candidate content never reaches the logs."""
+        secret = "a uniquely identifying sentence the candidate never wrote"
+        payload = judgment_payload(errors=[{"claim": secret, "severity": "major"}])
+        with caplog.at_level(logging.WARNING):
+            verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert any("error claim not found" in record.message for record in caplog.records)
+        assert secret not in caplog.text
+
+    def test_dropped_penalty_reads_the_scorer_s_own_constants(self):
+        """So a report can never quote a magnitude the arithmetic disagrees with."""
+        from app.grading.scoring import MAJOR_ERROR_PENALTY, MINOR_ERROR_PENALTY
+
+        payload = judgment_payload(
+            errors=[
+                {"claim": "invented claim number one here", "severity": "major"},
+                {"claim": "invented claim number two here", "severity": "minor"},
+            ]
+        )
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert verified.dropped_penalty == pytest.approx(MAJOR_ERROR_PENALTY + MINOR_ERROR_PENALTY)
+
+
+class TestTheDay19LengthBiasFabrications:
+    """The two real fabricated majors Day 19's probe produced, as regressions.
+
+    Verbatim from `evals/reports/grading/runs.jsonl`. Both were flagged against
+    padded answers whose substantive text was unchanged, and both cost 0.15.
+    """
+
+    @pytest.mark.parametrize(
+        "claim",
+        [
+            "wrapping the two statements in a transaction is by itself sufficient",
+            "equal counts of openers and closers means the string is balanced",
+        ],
+    )
+    def test_the_claim_is_not_in_the_answer_and_is_dropped(self, claim):
+        payload = judgment_payload(errors=[{"claim": claim, "severity": "major"}])
+        verified = verify_evidence(GradeJudgment.model_validate(payload), answer_text=ANSWER)
+        assert verified.dropped_error_count == 1
+        assert verified.judgment.errors == []

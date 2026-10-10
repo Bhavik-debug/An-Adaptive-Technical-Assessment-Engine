@@ -48,8 +48,10 @@ from app.grading.evalset import (  # noqa: E402
     MAX_LABEL,
     MIN_LABEL,
     EvalAnswer,
+    blind_worklist,
     dump_answers,
     gate_eligible,
+    label_agreement,
     label_distribution,
     label_sources,
     labelling_order,
@@ -64,6 +66,29 @@ ANSWERS_PATH = DATASET_DIR / "answers.jsonl"
 #: they labelled?") and tying them together would mean a rebuild silently
 #: reshuffled a labelling session that had already happened.
 LABEL_SEED = 8021
+
+
+def _agreement_line(rows: list[EvalAnswer]) -> str | None:
+    """Describe the pass-A-vs-retired comparison, naming which comparison it is.
+
+    The label is computed from the data rather than hard-coded, because the whole
+    point of ``label_agreement``'s ``sources`` key is that "human vs model" and
+    "model vs model" are different claims and only one of them bears on the gate.
+    Printing the wrong one is how a reproducibility number gets quoted as
+    validation.
+    """
+    agreement = label_agreement(rows)
+    if not agreement["n"]:
+        return None
+    sources = agreement["sources"]
+    assert isinstance(sources, list)
+    if sources == ["model"]:
+        what = "model vs model (same family - reproducibility, NOT validation)"
+    elif "human" in sources and "model" in sources:
+        what = "human vs model"
+    else:
+        what = f"pass A ({'/'.join(sources)}) vs retired model"
+    return f"  {what}\n    {agreement}"
 
 
 def _anchors_block() -> str:
@@ -124,6 +149,26 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--by-position",
+        action="store_true",
+        help=(
+            "read --from-file as '<position> <score>', position being 1-based in "
+            "the seeded labelling order. This is the form that pairs with a "
+            "--worklist, which carries positions and no row ids because the ids "
+            "leak quality_intent"
+        ),
+    )
+    parser.add_argument(
+        "--retire-model-labels",
+        action="store_true",
+        help=(
+            "move every label_source='model' score out of human_score into "
+            "model_score/model_labeller and clear the human fields, so a human "
+            "pass has somewhere to write without destroying the model pass. "
+            "Idempotent; refuses to overwrite an existing model_score"
+        ),
+    )
+    parser.add_argument(
         "--worklist",
         type=Path,
         help=(
@@ -164,8 +209,46 @@ def main() -> int:
     print(f"  sources      {label_sources(answers)}")
     print(f"  distribution {label_distribution(answers)}")
     print(f"  gate-eligible (human-labelled, 120/120): {gate_eligible(answers)}")
+    retired = sum(1 for a in answers if a.model_score is not None)
+    if retired:
+        print(f"  retired model pass  {retired}/{len(answers)}")
+        if (line := _agreement_line(answers)) is not None:
+            print(line)
 
     if args.status:
+        return 0
+
+    if args.retire_model_labels:
+        # Day 18's first sitting filled `human_score` with model labels. The
+        # human pass needs that field, and the model pass is worth keeping (see
+        # EvalAnswer.model_score), so it is moved rather than overwritten.
+        clash = sorted(
+            a.id for a in answers if a.label_source == "model" and a.model_score is not None
+        )
+        if clash:
+            print(f"\n  refusing: {len(clash)} rows already hold a model_score ({clash[:5]}).")
+            print("  moving the current label there would destroy a retired pass.")
+            return 1
+        moved = 0
+        for aid, row in list(by_id.items()):
+            if row.label_source != "model" or row.human_score is None:
+                continue
+            by_id[aid] = row.model_copy(
+                update={
+                    "model_score": row.human_score,
+                    "model_labeller": row.labeller,
+                    "human_score": None,
+                    "labeller": None,
+                    "label_source": None,
+                }
+            )
+            moved += 1
+        dump_answers(by_id.values(), args.path)
+        final_rows = list(by_id.values())
+        print(f"\n  retired {moved} model labels into model_score/model_labeller")
+        print(f"  sources      {label_sources(final_rows)}")
+        print(f"  human_score is now free on {moved} rows; run a human pass to fill it")
+        print(f"  gate-eligible: {gate_eligible(final_rows)}")
         return 0
 
     loaded_bank, bank_errors = load_bank()
@@ -175,26 +258,24 @@ def main() -> int:
     questions = {li.item.id: li.item.text for li in loaded_bank}
 
     if args.worklist:
-        # Blind by construction: the only fields written are the id, the
-        # question and the answer. A worklist carrying `quality_intent` would
-        # make the whole labelling pass worthless.
-        blocks = []
-        for position, aid in enumerate(order, start=1):
-            row = by_id[aid]
-            blocks.append(
-                f"### {position}/{len(order)}  {row.id}\n\n"
-                f"QUESTION\n{questions.get(row.question_id, '(missing)')}\n\n"
-                f"ANSWER\n{row.answer}\n"
-            )
-        args.worklist.write_text("\n".join(blocks), encoding="utf-8")
+        # Built in `evalset.blind_worklist` rather than here, because "this
+        # artefact is blind" is a property a test should assert rather than a
+        # property a CLI f-string is trusted to have. It was trusted, and it
+        # leaked the row id - which decodes `quality_intent` by arithmetic.
+        args.worklist.write_text(
+            blind_worklist(answers, questions=questions, seed=args.seed), encoding="utf-8"
+        )
         print(f"\n  wrote {len(order)} items to {args.worklist} in seeded shuffled order")
+        print("  positions only - no row ids, no intent. Apply with --from-file --by-position.")
         return 0
 
     if args.from_file:
         if not args.labeller:
             print("\n  --labeller is required (a score needs a claimant).")
             return 1
+        shape = "<position> <score>" if args.by_position else "<id> <score>"
         applied = skipped = 0
+        seen_keys: set[str] = set()
         for number, line in enumerate(
             args.from_file.read_text(encoding="utf-8").splitlines(), start=1
         ):
@@ -202,11 +283,30 @@ def main() -> int:
             if not text:
                 continue
             try:
-                aid, raw_score = text.split()
+                key, raw_score = text.split()
                 score = int(raw_score)
             except ValueError:
-                print(f"  {args.from_file.name} line {number}: expected '<id> <score>'")
+                print(f"  {args.from_file.name} line {number}: expected {shape!r}")
                 return 1
+            # A repeated key means two scores were given for one answer and the
+            # file order silently decides which wins. Refuse instead: a 120-line
+            # hand-made file is exactly where that typo happens.
+            if key in seen_keys:
+                print(f"  {args.from_file.name} line {number}: {key!r} appears twice")
+                return 1
+            seen_keys.add(key)
+            if args.by_position:
+                # Positions are 1-based in the seeded order, which is a pure
+                # function of the seed - so a worklist can stay free of row ids.
+                if not key.isdigit() or not 1 <= int(key) <= len(order):
+                    print(
+                        f"  {args.from_file.name} line {number}: position {key!r} is not "
+                        f"in 1..{len(order)}"
+                    )
+                    return 1
+                aid = order[int(key) - 1]
+            else:
+                aid = key
             if aid not in by_id:
                 print(f"  {args.from_file.name} line {number}: unknown answer id {aid!r}")
                 return 1
@@ -227,8 +327,21 @@ def main() -> int:
         dump_answers(by_id.values(), args.path)
         final_rows = list(by_id.values())
         print(f"\n  applied {applied}, left {skipped} already-labelled rows alone")
+        if skipped:
+            # Loud, because the quiet version of this is how a human pass gets
+            # reported as done having written nothing: every row already carried
+            # a label, every row was skipped, and the exit code was 0. If the
+            # intent was to replace a previous pass, retire it first.
+            print(
+                f"  NOTE {skipped} of {applied + skipped} scores were NOT written - those rows "
+                f"already had a {score_field}."
+            )
+            if applied == 0:
+                print("  nothing was written. --retire-model-labels frees human_score.")
         print(f"  sources      {label_sources(final_rows)}")
         print(f"  distribution {label_distribution(final_rows)}")
+        if (line := _agreement_line(final_rows)) is not None:
+            print(line)
         print(f"  gate-eligible: {gate_eligible(final_rows)}")
         return 0
     if not todo:

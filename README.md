@@ -811,28 +811,52 @@ import nothing from the scorer, pipeline, evidence checker or grader. Tests
 assert all of it by parsing ASTs — a ground truth computed from the thing being
 measured measures nothing.
 
-**All 120 are labelled 0–4**, applied blind through
-`scripts/label_grading_evalset.py` in seeded shuffled order — the labeller sees
-the question and the answer, never the quality intent, the concept split or the
-row id.
+**All 120 are labelled 0–4 three times**, each pass blind to the construction
+intent and applied in the same seeded shuffled order.
 
-**But they are `label_source: "model"`, not human.** The Phase-4 gate is
-QWK ≥ 0.65 *against human labels* (plan §12.2 step 3), so `gate_eligible()`
-returns `False` and a test pins it. The set is usable for building the Day-19
-harness and **cannot be used to report the gate**. A human pass writes
-`--source human`.
+| Pass | Where | Labeller | Rubric |
+|---|---|---|---|
+| Day-18 A | `answers.jsonl` → `human_score` | `claude-opus-5[1m]` | `labels-v1` |
+| Day-18 retired | `answers.jsonl` → `model_score` | `claude-opus-5` | `labels-v1` |
+| Day-19 blind | `reference_labels.jsonl` | `nvidia/nemotron-3.5-lightning-30b-a3b` | `labels-v2` |
 
-Three measured weaknesses, all documented and all pinned by tests:
+**All three are `label_source: "model"`. There are zero human labels.** The
+Phase-4 gate is QWK ≥ 0.65 *against human labels* (plan §12.2 step 3), so
+`gate_eligible()` returns `False` and tests pin it — including one asserting that
+*two model passes do not add up to a human one*. The set is usable for building
+the Day-19 harness and **cannot be used to report the gate**.
+
+The Day-19 pass is the only one **isolated from `quality_intent` by
+construction**: its prompt's `required_inputs` are `("question", "answer")`, so
+there is no slot to leak into, and a test rebuilds every one of the 120 prompts
+from the question and answer alone to prove it. It is also the **weakest** of
+the three on discriminating power — 98 of 120 rows land on band 3, and the
+per-intent means are not monotone. Both facts are in
+`evals/reports/reference_labels.md`.
+
+> **The grader and the Day-19 labeller are the same model.** The configured
+> provider serves every capability tier from one model, so the model that wrote
+> the answers, the grader under test, and the Day-19 reference labeller are all
+> `nemotron-3.5-lightning-30b-a3b`. Agreement between the grader and those
+> labels is partly agreement with itself. The Day-18 passes come from a
+> different model family and are therefore the *less* circular reference,
+> despite their own contamination — which is why
+> `evals/reports/grading_validity.md` reports all three side by side and
+> promotes none to "primary".
+
+Four measured weaknesses, all documented and all pinned by tests:
 
 | Finding | Number | Why it matters to Day 19 |
 |---|---|---|
 | Omitted-concept leakage | **21 / 192 slots (10.9%)** | `concepts_omitted` is the precision ground truth; report precision with *and* without the flagged rows |
-| `wrong_confident` non-compliance | **18 / 24** | The generator wrote correct prose instead of errors. Do **not** treat that level as "answers containing errors" |
-| Label compression | **87% at 3–4, zero 1s** | Effective range is 2–4. A quadratically weighted statistic over this will be weak and unstable whatever the grader does |
+| `wrong_confident` non-compliance | **19 / 24** | The generator wrote correct prose instead of errors. Do **not** treat that level as "answers containing errors" |
+| `excellent` is not error-free either | **4 / 24 marked down** | One row's worked example does not demonstrate what it claims; three others contain a contradiction, a garbled interleaving, or an inverted causal claim |
+| Label compression | **84% at 3–4; 2 rows of 120 below 2** | Effective range is 2–4. A quadratically weighted statistic over this will be weak and unstable whatever the grader does |
 
-The construction does work: means descend 3.96 / 3.25 / 2.92 / 2.83 / 2.79 across
-the five levels and 85.2% of answer pairs agree in direction with the intent. See
-the dataset README for the full tables.
+The construction does work: means descend 3.79 / 3.50 / 2.96 / 2.88 / 2.79 across
+the five levels and 82.6% of answer pairs agree in direction with the intent. See
+the dataset README for the full tables, both passes, and the contamination caveat
+on the second one.
 
 **Real grading fixtures are recorded.** Three responses from
 `nvidia/nemotron-3.5-lightning-30b-a3b`, replayed offline by 17 tests: no score
@@ -840,11 +864,107 @@ field in the raw bytes, zero fabricated evidence spans, the three cases scored i
 the order they were built, and the injection case scored 0.0. That is a
 favourable early signal and **not** the Day-20 ASR measurement.
 
-**Not yet built, and honestly so:** the 120 human labels and QWK, the bias probes
-and the prompt sweep are Day 19; the injection suite and the CI regression gate
-are Day 20. **Of the five Phase-4 exit gates, one — position bias — is met and
-tested. The other four are not measured, and a dataset existing is not a gate
-passed.**
+### The validity harness (Day 19)
+
+QWK, Spearman ρ, MAE, test–retest σ and the four bias probes are implemented in
+`app/grading/validity.py` and `app/grading/probes.py`, both **pure** — no LLM, no
+network, no clock — and driven by `scripts/run_grading_validity.py`. Every grader
+call is persisted to `evals/reports/grading/runs.jsonl` *with the judgment it was
+scored from*, so `--report` recomputes the whole report from disk with **no model
+calls** and the arithmetic is auditable.
+
+| Report | What is in it |
+|---|---|
+| [`evals/reports/grading_validity.md`](evals/reports/grading_validity.md) | the metrics, the confusion matrices, the probes, the gate table |
+| [`evals/reports/reference_labels.md`](evals/reports/reference_labels.md) | what the reference labels are and what is wrong with them |
+| [`evals/reports/metrics-explained.md`](evals/reports/metrics-explained.md) | what QWK, Spearman, MAE and σ mean, assuming no statistics background |
+| [`evals/reports/injection_suite.md`](evals/reports/injection_suite.md) | the 32-case attack suite, ASR, and the noise-floor analysis |
+| [`evals/reports/phase4_completion.md`](evals/reports/phase4_completion.md) | the Day-20 Phase-4 audit and gate table |
+| [`evals/reports/phase4_diagnostic.md`](evals/reports/phase4_diagnostic.md) | the remediation diagnostic: what reproduced, what did not, and why |
+| [`docs/grading.md`](docs/grading.md) | how the grader is measured and what the measurements are worth, from scratch |
+
+QWK is verified against an exact algebraic identity for quadratic weights over
+500 random and correlated cases, not against sklearn — this project has no
+numpy/scipy dependency and one was not added for a test. A different *formula*
+is a stronger check than a second implementation of the same one.
+
+### Phase-4 status: implementation-complete, acceptance-pending
+
+| Exit gate | Required | Measured | Status |
+|---|---|--:|---|
+| QWK vs **human** reference | ≥ 0.65 on 120 | no human labels exist | **Unverified — ineligible** |
+| Length bias | max \|Δ\| < 0.05 | 0.2385 as stored; **−0.0375 mean on replication** | **FAIL — magnitude not established** |
+| Confidence bias | max \|Δ\| < 0.03 | 0.3044 as stored; **−0.1138 mean, opposite sign** | **FAIL — direction not established** |
+| Position/order bias | exactly 0 | **0.0** (120 × 8 shuffles, code-side) | **PASS** |
+| Injection ASR | 0% | **21.9%** (7/32) | **FAIL** |
+| CI regression gate | fail on > 0.05 | demonstrated both ways | **PASS** |
+
+**The remediation diagnostic revised two of these numbers and the root cause
+behind three of them.** Day 20 reported an ASR of 25.0% (8/32); recomputing it
+from the stored scores gives **21.9% (7/32)** — `MARGIN_EPSILON` was added to the
+success rule *after* the suite ran, and `inj-018`'s delta of exactly
+`0.050000000000000044` is not "more than 0.05". `injection.jsonl` is left as the
+historical record rather than edited.
+
+**The real root cause.** `verify_evidence` strips credit from **15.4% of the
+concepts the grader claims** and records each as `FABRICATED`. Seven failing
+spans were captured live and **none is a fabrication**: five are the model
+summarising in its own words, and two are pairs of genuinely verbatim excerpts
+joined with an ellipsis — the first 104 characters match exactly and the
+substring test fails only on the join. One stripped concept costs
+`3/9 × 0.65 = 0.2167`, which is **4.3× the entire length-bias tolerance**, and it
+fires non-deterministically.
+
+So the grader's score range on **byte-identical input** reaches 0.1956, and every
+bias and security gate is a *maximum over single-sample paired deltas*:
+
+| Condition | text change | inflates the score by more than +0.05 |
+|---|---|--:|
+| **repeat run, identical input** | **none** | **21.4%** |
+| 207 words of contentless filler | semantically none | 20.8% |
+| **crafted adversarial payload** | adversarial | **21.9%** |
+
+A crafted attack is no more likely to raise the score than running the same
+grader twice on the same text. Re-sampling the two rows that set the headline
+maxima, four times per condition in one sitting, moved the length maximum from
+−0.2385 to a mean of −0.0375 and **reversed the sign** of the confidence maximum.
+**Neither gate is reported as passing** — mean \|Δ\| on the filler probe is still
+about twice the noise floor, so a real but modest length effect may well remain.
+What changed is that the reported magnitudes are not trustworthy.
+
+What *did* hold across all 64 injection rows, verified against the artefact:
+**zero** payload-sourced credit and **zero** criteria leaks. Two
+`delimiter_escape` cases reproduce in both prompt arms with identical deltas, and
+their mechanism is real — the grader is shown the literal `[removed-delimiter]`
+marker and the active prompt never explains it.
+
+**A separate, independent defect: the dataset's ground truth is mostly false.**
+`concepts_omitted` was chosen by code before generation and the generator was
+told to stay silent about those concepts. It ignored the instruction:
+**134 of 192 supposedly-omitted concepts were credited, all 134 on spans that
+verify verbatim against the answer.** The lexical leakage detector catches 16% of
+them. The consequence is that the five intended quality levels do not separate —
+`good` outscores `excellent` on both the reference labels and the grader — and
+that 81.7% of the reference labels sit in a single band, which leaves the
+committed QWK of 0.4252 weakly identified **independently of the human-label
+problem**.
+
+Day 20 also fixed a real defect found by the length probe — **5 of 8 flagged
+error claims were fabrications, including both `major` ones** at 0.15 each.
+`AnswerError.claim` is documented as a quotation and nothing checked it existed;
+it is now verified against the answer exactly as evidence spans are, so credit
+and penalty are symmetric.
+
+Full audits, with every command and result:
+[`evals/reports/phase4_completion.md`](evals/reports/phase4_completion.md) (Day
+20) and [`evals/reports/phase4_diagnostic.md`](evals/reports/phase4_diagnostic.md)
+(the diagnostic). The from-scratch explainer is
+[`docs/grading.md`](docs/grading.md).
+
+**Not yet built, and honestly so:** the 120 **human** labels — and therefore the
+gate-eligible QWK — remain outstanding. `gate_eligible()` returns `False`: 0 of
+120 rows carry `label_source == "human"`. **A dataset existing is not a gate
+passed, and nor are three model labelling passes over it.**
 
 ## Database & migrations
 
@@ -984,6 +1104,7 @@ docs/question-bank.md the item schema, the review rule, validation and ingest
 docs/retrieval.md     embeddings, pgvector, HNSW, lexical search and RRF, from scratch
 docs/reranking.md     cross-encoders, the two-stage design, score semantics, fallback
 docs/evaluation.md    ground truth, Recall@K, MRR, nDCG, the ablation — from scratch
+docs/grading.md       grading QWK, bias probes, noise floors, what the gates certify
 docs/adaptive-selection.md  Fisher information, the selection objective, the hard
                       constraints, ε-greedy and the stopping rule — from scratch
 docs/blueprint.md     the Day 15 contract: role + level + duration -> quotas and

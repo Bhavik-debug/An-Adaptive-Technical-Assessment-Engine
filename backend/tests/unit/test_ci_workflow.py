@@ -73,10 +73,38 @@ class TestTheQualityGates:
             ("types", "mypy --strict app"),
             ("tests", "pytest"),
             ("secrets", "gitleaks"),
+            # Day 20, plan section 12.3. Named here so the gate cannot be
+            # quietly dropped from the workflow without a test failing: the
+            # whole value of "a regression fails CI" is that nobody can remove
+            # it in passing.
+            ("grading regression", "tests/unit/grading/test_regression_gate.py"),
         ],
     )
     def test_the_gate_runs(self, all_run_steps, gate, command):
         assert command in all_run_steps, f"CI does not run the {gate} gate ({command!r})"
+
+    def test_the_grading_regression_gate_needs_no_provider_or_services(self):
+        """It must stay pure arithmetic over committed files.
+
+        Plan section 12.3 wants the eval suite to run "free in ~40 s per PR".
+        A gate that needed a provider credential would be skipped in CI, and a
+        skipped gate is not a gate - so it lives in the `static` job, which has
+        no services, and this asserts it stayed there.
+        """
+        import yaml
+
+        workflow = yaml.safe_load(
+            (
+                Path(__file__).resolve().parents[2].parent / ".github" / "workflows" / "ci.yml"
+            ).read_text(encoding="utf-8")
+        )
+        static = workflow["jobs"]["static"]
+        assert "services" not in static
+        steps = [step.get("run", "") for step in static["steps"]]
+        assert any("test_regression_gate.py" in step for step in steps), (
+            "the grading regression gate must run in the `static` job, which has no "
+            "services and no provider credential"
+        )
 
     def test_the_static_job_runs_lint_before_types(self, workflow):
         """Cheapest check first, so the log reads top to bottom."""

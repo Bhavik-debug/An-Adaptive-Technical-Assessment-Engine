@@ -105,6 +105,19 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 # dataset?" and "in what order were they labelled?" each have to have one
 # answer. A cryptographic generator would make both unanswerable.
 "app/grading/evalset.py" = ["S311"]
+# S311 for the same reason once more: the Day-19 position-bias probe shuffles a
+# concept list from a committed seed, so the exact permutation a result came
+# from is recoverable. S107: `pass_name="blind"` is a labelling-pass name, not a
+# password - the rule is pattern-matching on the parameter name.
+"app/grading/probes.py" = ["S311"]
+"app/grading/reflabel.py" = ["S107"]
+# S106 likewise: `pass_name=` is a keyword argument naming a labelling pass.
+"scripts/run_grading_validity.py" = ["S105", "S106"]
+"scripts/build_reference_labels.py" = ["S105", "S106"]
+"scripts/report_reference_labels.py" = ["S105", "S106"]
+"scripts/update_grading_baseline.py" = ["S105", "S106"]
+"scripts/run_injection_suite.py" = ["S105", "S106"]
+"scripts/recheck_bias_probes.py" = ["S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"
