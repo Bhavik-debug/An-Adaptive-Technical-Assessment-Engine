@@ -79,6 +79,30 @@ pipeline rolls a release back on a failed `/readyz`, so these checks have to be 
 | `POST /api/auth/logout` | Revoke the refresh token, clear the cookie |
 | `GET /api/auth/me` | The authenticated user |
 
+The report (Day 25, [`docs/reporting.md`](docs/reporting.md)): `GET
+/api/sessions/{id}/report` returns 202 while it is built, 200 when ready, and
+409 before the interview finishes. Offline whole-interview runs use
+`LLM_PROVIDER_ORDER=stub LLM_STUB_ON_MISSING=scripted` — a deterministic
+*scripted* model whose rule is documented in `app/simulation/scripted_llm.py`;
+its grades are not a model's judgement.
+
+Resumes and job descriptions (Day 24, [`docs/ingestion.md`](docs/ingestion.md)):
+`POST /api/resumes` (raw PDF or UTF-8 body, ≤ 5 MB, `202`), `GET
+/api/resumes/{id}`, `PATCH /api/resumes/{id}/profile` (the candidate confirms or
+corrects the parser's suggestion), and `POST`/`GET /api/job-descriptions`.
+PDF parsing uses **PyMuPDF, licensed AGPL-3.0 / commercial**; see
+`docs/ingestion.md` §10 before any public deployment.
+
+Interview sessions (Day 23, [`docs/follow-ups.md`](docs/follow-ups.md)): `POST
+/api/sessions` (`201`, body = an assessment spec) and `POST
+/api/sessions/{id}/start` (the first question; a repeat replays it).
+
+Interview turns (Day 22, [`docs/turn-api.md`](docs/turn-api.md)): `POST
+/api/sessions/{id}/turns` (`202`, idempotent on the client's `turn_id`),
+`GET /api/sessions/{id}/turns/{turn_id}`, and `GET /api/sessions/{id}/stream`
+(server-sent events). Grading runs in a background worker inside the API process;
+set `GRADING_WORKER_ENABLED=false` to turn it off.
+
 **Two tokens, on purpose.** The *access token* is a 15-minute JWT sent in the
 `Authorization` header — cheap to verify (a signature check, no database round
 trip) but impossible to revoke, so it is kept short. The *refresh token* is a
@@ -647,8 +671,25 @@ information, the objective and the stopping rule from scratch;
 [`docs/simulation.md`](docs/simulation.md) the experiment;
 [`docs/convergence.md`](docs/convergence.md) the convergence analysis and its
 figures; [`docs/blueprint.md`](docs/blueprint.md) the assessment contract.
-Nothing in any of these layers is exposed over HTTP — the interview FSM, the
-session API and resume/JD parsing come later.
+None of these layers is exposed over HTTP directly. The interview FSM and its
+append-only event log exist as of Day 21 (`backend/app/interview/`,
+[`docs/interview-fsm.md`](docs/interview-fsm.md)). Day 22 added the turn API on
+top of them: idempotent answer submission (`202`), background grading through
+the Phase-4 grader, and an SSE stream of state transitions
+([`docs/turn-api.md`](docs/turn-api.md)). Day 23 added session creation and
+start, plus the post-grade loop: a deterministic follow-up policy (plan §8.5,
+the model only words the probe), then the stop rule and next-item selection
+([`docs/follow-ups.md`](docs/follow-ups.md)). Day 24 added resume upload
+(PDF/text, parsed in an isolated child process), an editable candidate
+profile, job-description ingestion, PII redaction before storage and before
+every model call, and capped resume priors
+([`docs/ingestion.md`](docs/ingestion.md)). Day 25 added the report:
+deterministic statistics computed from the event log, one model call that
+writes prose over them (with a labelled template fallback), and the
+`REPORTING → COMPLETED` transition committed with the persisted report
+([`docs/reporting.md`](docs/reporting.md)). A shell script now drives a complete
+10-question interview through the public API offline
+(`sh backend/scripts/scripted_interview.sh`, using the scripted stub model).
 
 ## The grader — why the model never emits a score
 
@@ -1025,6 +1066,12 @@ backend/app/          FastAPI modular monolith
   models/             SQLAlchemy table definitions
   api/health.py       liveness + readiness
   api/auth.py         register / login / refresh / logout / me
+  api/sessions.py     create + start (Day 23); turns, status, SSE (Day 22); report (Day 25)
+  reporting/          the report (Day 25) - see docs/reporting.md
+    stats.py          deterministic aggregation from the event log (plan 9.3 / 9.6)
+    narrative.py      one FINAL_REPORT call, invented-number guard, template fallback
+    jobs.py           build the report and complete the session, fenced and bounded
+  simulation/scripted_llm.py  the documented scripted model for offline runs (Day 25)
   obs/                observability — see docs/observability.md
     context.py        request id / user id carried through async code
     redaction.py      what must never be written down
@@ -1073,6 +1120,32 @@ backend/app/          FastAPI modular monolith
     rerank.py         stage 2: the Reranker interface, ordering, fallback
     rerankers.py      bge-reranker-base via fastembed, and a stand-in
     pipeline.py       composes the two stages
+  interview/          the session lifecycle (Day 21) — see docs/interview-fsm.md
+    fsm.py            the eight states and the one transition table — pure
+    events.py         what each event may carry; extra fields rejected — pure
+    state.py          SessionState and fold(events) — pure, deterministic
+    store.py          append under a per-session row lock, read in seq order
+    cache.py          the fold in Redis (sess:{id}), monotonic in seq
+    service.py        create / append / load; owns the transaction
+    turns.py          answer submission, idempotent on turn_id (Day 22)
+    grading.py        the background grader: claim, fence, bounded retry (Day 22)
+    stream.py         SSE: log events -> whitelisted messages, Last-Event-ID (Day 22)
+    followup.py       the follow-up policy (plan 8.5): rules, caps, trace - pure (Day 23)
+    flow.py           after a grade: follow-up, or stop rule, or next item (Day 23)
+    probing.py        the follow-up wording job: claim, fence, retry, abandon (Day 23)
+    lifecycle.py      start: CREATED -> PREPARING -> ASKING in one transaction (Day 23)
+    priors.py         resume-seeded, capped priors (plan 9.4) - pure (Day 24)
+  ingestion/          resumes and JDs (Day 24) - see docs/ingestion.md
+    files.py          byte sniffing; PDF text in an isolated, time-limited child
+    extraction.py     prompts, closed vocabulary, verify-against-text, topic weights
+    profile.py        the candidate-confirmed profile contract
+    jobs.py           extraction as durable, fenced, retried jobs
+  privacy/pii.py      deterministic PII redaction - what it does and does not catch
+  api/ingestion.py    resume upload/profile and job-description routes (Day 24)
+  wording/            what the model says (Day 23) - see docs/follow-ups.md
+    prompt.py         follow-up probe + question rendering prompts and contracts
+    probe.py          probe context (minimum, fenced), generation, code-side checks
+    render.py         contextual binding with the anchor-term guard; canonical fallback
   evaluation/         how well retrieval works — see docs/evaluation.md
     metrics.py        Recall@K, MRR, nDCG — pure, no database, no models
     dataset.py        the labelled queries and their known-relevant ids
@@ -1113,6 +1186,16 @@ docs/simulation.md    the Day 13 experiment: synthetic candidates, the Beta resp
                       model, CAT vs random vs fixed, and the weight ablation
 docs/convergence.md   the Day 14 analysis: how θ̂ approaches the truth turn by turn,
                       what each figure means, and the coverage/accuracy crossover
+docs/interview-fsm.md the Day 21 FSM, event log, fold and Redis cache: transitions,
+                      invariants, concurrency, failure behaviour
+docs/turn-api.md      the Day 22 turn API: 202 contract, idempotency, the grading
+                      worker and its retries, SSE, and what "charge" means here
+docs/follow-ups.md    the Day 23 follow-up policy, caps, wording boundary, session
+                      create/start, and what happens after a grade
+docs/ingestion.md     the Day 24 resume/profile/JD pipeline, PII redaction limits,
+                      capped priors and the measured washout finding
+docs/reporting.md     the Day 25 report, session completion, the scripted run, and
+                      the Phase 5 gate evidence
 docs/adr/             architecture decision records
 .github/workflows/    ci.yml — lint, format, types, tests, secret scan
 .gitleaks.toml        secret-scanner allowlist (documented placeholders only)
@@ -1120,8 +1203,8 @@ docker-compose.yml    api + postgres(pgvector) + redis
 plan.md               the 45-day blueprint this repo is built against
 ```
 
-Modules land as their phase arrives (`interview/`, `ingestion/`, `billing/`,
-`sandbox/`) — see `plan.md` §13.9.
+Modules land as their phase arrives (`ingestion/`, `billing/`, `sandbox/`) —
+see `plan.md` §13.9.
 
 ## Stack
 

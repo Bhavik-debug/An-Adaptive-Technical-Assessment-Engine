@@ -89,6 +89,8 @@ def question_row(item: BankItem) -> dict[str, object]:
         "discrimination_a": item.discrimination_a,
         "expected_concepts": [c.model_dump() for c in item.expected_concepts],
         "reference_answer": item.reference_answer,
+        # The grader's Pass A input (plan section 7.2). Dropped before Day 22.
+        "common_misconceptions": list(item.common_misconceptions) or None,
         "follow_up_seeds": [{"prompt": seed} for seed in item.follow_up_seeds] or None,
         "anchor_terms": item.anchor_terms or None,
         "time_estimate_s": item.time_estimate_s,

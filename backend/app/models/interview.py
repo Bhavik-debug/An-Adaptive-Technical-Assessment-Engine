@@ -13,11 +13,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utc_now_column
 
-# The FSM from plan section 13.4. Stored as text rather than a Postgres ENUM:
-# adding a value to an ENUM is a migration, and the state machine will still be
-# moving during Phase 5.
+# The FSM from plan section 13.4, defined in full in app/interview/fsm.py
+# (InterviewState); these two constants predate it and match its values.
+# Stored as text rather than a Postgres ENUM: adding a value to an ENUM is a
+# migration, and the state machine will still be moving during Phase 5.
 SESSION_STATE_CREATED = "CREATED"
 SESSION_STATE_COMPLETED = "COMPLETED"
+
+# Where a turn's grading stands (Day 22). Not FSM states: the session is in
+# GRADING throughout; these describe the background job for one turn.
+GRADING_PENDING = "pending"
+GRADING_PROCESSING = "processing"
+GRADING_GRADED = "graded"
+GRADING_FAILED = "failed"
 
 
 class InterviewSession(Base):
@@ -32,7 +40,15 @@ class InterviewSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    # resume_id / jd_id arrive in Phase 5 with the tables they reference.
+    # Day 24 (migration 0006): the resume and job description this session was
+    # created with. SET NULL on delete: priors were already recorded in the
+    # event log at /start, so deleting a resume rewrites nothing.
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True
+    )
+    jd_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("job_descriptions.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Topic quotas, item budget, time budget - computed once at session creation
     # by the blueprint builder (plan section 3, Day 15). The shape written here
@@ -100,6 +116,11 @@ class InterviewEvent(Base):
         # and the index that serves the only read pattern there is: "every event
         # for one session, in order" - a single ordered range scan.
         sa.UniqueConstraint("session_id", "seq", name="uq_interview_events_session_id_seq"),
+        # Day 21 (migration 0003): seq counts from 0 - SESSION_CREATED is seq 0.
+        # The same migration installs a trigger that rejects UPDATE and direct
+        # DELETE on this table; triggers are not part of SQLAlchemy metadata, so
+        # it is documented here rather than declared. See app/interview/store.py.
+        sa.CheckConstraint("seq >= 0", name="seq_non_negative"),
     )
 
 
@@ -142,6 +163,119 @@ class Turn(Base):
     latency_ms: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     created_at: Mapped[dt.datetime] = utc_now_column()
 
+    # --- The grading lifecycle (Day 22, migration 0004) ---------------------
+    # The turn row is the durable grading queue; see app/interview/grading.py.
+    grading_status: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, server_default=sa.literal(GRADING_PENDING)
+    )
+    grading_attempts: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=sa.text("0")
+    )
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    # A short machine code (app.interview.grading.classify_error), never a
+    # provider message - those can echo the prompt, and the prompt holds the answer.
+    grading_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    graded_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    # Day 23 (migration 0005): the follow-up policy's trace for this grade -
+    # every rule's status and the numbers it saw. Keys and numbers only.
+    policy_decision: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
     __table_args__ = (
         sa.UniqueConstraint("session_id", "turn_id", name="uq_turns_session_id_turn_id"),
+        sa.CheckConstraint(
+            "grading_status IN ('pending', 'processing', 'graded', 'failed')",
+            name="grading_status_valid",
+        ),
+        sa.CheckConstraint("grading_attempts >= 0", name="grading_attempts_non_negative"),
+        # Only rows a worker can ever claim. See migration 0004.
+        sa.Index(
+            "ix_turns_claimable",
+            "grading_status",
+            "next_attempt_at",
+            postgresql_where=sa.text("grading_status IN ('pending', 'processing')"),
+        ),
+    )
+
+
+FOLLOW_UP_PENDING = "pending"
+FOLLOW_UP_PROCESSING = "processing"
+FOLLOW_UP_READY = "ready"
+FOLLOW_UP_ABANDONED = "abandoned"
+
+
+class FollowUp(Base):
+    """One decided follow-up and the durable job that words it (Day 23).
+
+    Created ``pending`` in the same transaction as the grade that triggered it;
+    finished by the worker in ``app.interview.probing``. See migration 0005 for
+    why the uniques make duplicates and the per-item cap impossible here too.
+    """
+
+    __tablename__ = "follow_ups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=sa.text("gen_random_uuid()"),
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: The client turn_id whose grade triggered this follow-up.
+    source_turn_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    #: The bank item being probed - the parent, never the follow-up itself.
+    item_question_id: Mapped[str | None] = mapped_column(
+        sa.Text, sa.ForeignKey("questions.id", ondelete="SET NULL"), nullable=True
+    )
+    ordinal: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    concept_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, server_default=sa.literal(FOLLOW_UP_PENDING)
+    )
+    attempts: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    #: A short machine code, never a provider message.
+    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    #: The generated probe, once ready.
+    text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    created_at: Mapped[dt.datetime] = utc_now_column()
+    generated_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('pending', 'processing', 'ready', 'abandoned')", name="status_valid"
+        ),
+        sa.CheckConstraint("ordinal IN (1, 2)", name="ordinal_within_cap"),
+        sa.CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        sa.UniqueConstraint(
+            "session_id", "source_turn_id", name="uq_follow_ups_session_id_source_turn_id"
+        ),
+        sa.UniqueConstraint(
+            "session_id",
+            "item_question_id",
+            "ordinal",
+            name="uq_follow_ups_session_id_item_question_id_ordinal",
+        ),
+        sa.Index(
+            "ix_follow_ups_claimable",
+            "status",
+            "next_attempt_at",
+            postgresql_where=sa.text("status IN ('pending', 'processing')"),
+        ),
     )

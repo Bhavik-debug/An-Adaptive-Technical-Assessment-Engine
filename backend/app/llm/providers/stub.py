@@ -38,10 +38,11 @@ a test that expected a recording and got invented data should fail loudly.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import StrEnum
 from typing import Any
 
@@ -86,6 +87,15 @@ class MissingFixturePolicy(StrEnum):
     #: Derive a shape-correct object from the schema. The right default for
     #: developing a new phase before any recording of it exists.
     SYNTHESIZE = "synthesize"
+    #: Ask the registered scripted responder (Day 25). Raises if none is
+    #: registered or it declines the request - never falls back to synthesis.
+    SCRIPTED = "scripted"
+
+
+#: (request) -> response text, or None to decline. Registered by the app's
+#: composition root so this package never imports domain code.
+ScriptedResponder = Callable[["CompletionRequest"], "str | None"]
+MODE_SCRIPTED = "stub_scripted"
 
 
 class MissingFixtureError(ProviderResponseError):
@@ -127,6 +137,9 @@ class StubProvider(LLMProvider):
         self._store = store if store is not None else FixtureStore()
         self._on_missing = on_missing
         self._model = model
+        self._responder: ScriptedResponder | None = None
+        self._delay_s = 0.0
+        self.scripted = 0
         #: Counters a test can assert on without reaching into internals.
         self.replayed = 0
         self.synthesized = 0
@@ -165,6 +178,27 @@ class StubProvider(LLMProvider):
                 provider=self.name,
             )
 
+        if self._on_missing is MissingFixturePolicy.SCRIPTED:
+            if self._delay_s:
+                await asyncio.sleep(self._delay_s)
+            answer = self._responder(request) if self._responder is not None else None
+            if answer is None:
+                raise MissingFixtureError(
+                    f"scripted mode: no responder answered this request (key {key})",
+                    provider=self.name,
+                )
+            self.scripted += 1
+            return CompletionResult(
+                text=answer,
+                provider=self.name,
+                model=self._model,
+                input_tokens=sum(len(m.content) for m in request.messages) // 4,
+                output_tokens=len(answer) // 4,
+                reasoning_tokens=0,
+                finish_reason="stop",
+                structured_mode=MODE_SCRIPTED,
+            )
+
         self.synthesized += 1
         text = json.dumps(synthesize(request.json_schema.schema, seed=key), separators=(",", ":"))
         log.debug("llm stub synthesized a response for key %s", key[:12])
@@ -194,6 +228,11 @@ class StubProvider(LLMProvider):
     @property
     def on_missing(self) -> MissingFixturePolicy:
         return self._on_missing
+
+    def set_responder(self, responder: ScriptedResponder | None, *, delay_s: float = 0.0) -> None:
+        """Register the scripted responder used by ``SCRIPTED`` mode (Day 25)."""
+        self._responder = responder
+        self._delay_s = delay_s
 
     def add_fixture(self, fixture: Fixture) -> None:
         """Register a recording in memory. For tests and the recorder."""

@@ -101,6 +101,57 @@ class Settings(DatabaseSettings):
     # How long a readiness probe waits on a dependency before calling it down.
     readiness_timeout_s: float = Field(default=2.0, gt=0, le=30)
 
+    # --- Interview session state (plan section 11.1, Day 21) ---------------
+    # The Redis copy of fold(events). Plan 11.1: "Redis hash sess:{id}, TTL 4 h,
+    # versioned by event seq". The TTL bounds the cache to sessions touched in
+    # the last few hours; an expired entry is rebuilt from Postgres on next read.
+    session_cache_ttl_s: int = Field(default=4 * 3600, gt=0, le=7 * 24 * 3600)
+    # How long one cache operation may take before it is treated as a miss. A
+    # cache is only worth waiting for while it is faster than the fold it
+    # replaces - a few ms of indexed reads - so this is short on purpose.
+    session_cache_timeout_s: float = Field(default=0.5, gt=0, le=10)
+
+    # --- Turn grading worker (Day 22) ---------------------------------------
+    # Grading runs in the background; `turns` is the durable queue (see
+    # app/interview/grading.py). Off only for tests that drive the worker by hand.
+    grading_worker_enabled: bool = True
+    # Total claims of one turn, including ones lost to a crash. Bounded on purpose:
+    # a provider that is down for an hour must not be retried for an hour.
+    grading_max_attempts: int = Field(default=3, ge=1, le=10)
+    # Backoff between attempts: base * 2^(attempt-1), capped.
+    grading_retry_base_s: float = Field(default=2.0, gt=0, le=300)
+    grading_retry_max_s: float = Field(default=30.0, gt=0, le=3600)
+    # Wall clock for one grading attempt (up to 4 chokepoint calls when the
+    # confidence gate fires). The claim lease is this plus a margin, so a live
+    # worker is never presumed dead while it is still within its own deadline.
+    grading_timeout_s: float = Field(default=300.0, gt=0, le=3600)
+    # How much longer than its own deadline a claim is honoured before another
+    # worker may presume the claimant dead (was the constant LEASE_MARGIN_S = 60
+    # on Day 22; a setting since Day 25 so the process-kill drill need not wait
+    # a minute). Applies to grading, follow-up wording, extraction and reports.
+    grading_lease_margin_s: float = Field(default=60.0, ge=0, le=3600)
+    # How often an idle worker looks for claimable turns.
+    grading_poll_interval_s: float = Field(default=1.0, gt=0, le=60)
+
+    # --- Server-sent events (Day 22) ----------------------------------------
+    # How often an open stream checks the event log for new events, and how
+    # often it sends a comment line so proxies do not close an idle connection.
+    sse_poll_interval_s: float = Field(default=0.5, gt=0, le=30)
+    sse_keepalive_s: float = Field(default=15.0, gt=0, le=300)
+
+    # --- Resume and job-description ingestion (Day 24) ----------------------
+    # Plan section 14.3: "5 MB cap, magic-byte sniffing, parse in a worker with
+    # 20 s timeout + memory cap".
+    resume_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
+    resume_max_pages: int = Field(default=10, ge=1, le=50)
+    resume_max_text_chars: int = Field(default=50_000, ge=1_000, le=500_000)
+    resume_parse_timeout_s: float = Field(default=20.0, gt=0, le=120)
+    #: Address-space cap for the PDF child process, where the OS supports it
+    #: (POSIX ``RLIMIT_AS``; not enforceable on Windows - see docs/ingestion.md).
+    resume_parse_memory_mb: int = Field(default=512, ge=64, le=4096)
+    jd_max_chars: int = Field(default=20_000, ge=100, le=200_000)
+    jd_min_chars: int = Field(default=40, ge=1, le=10_000)
+
     # --- Authentication -----------------------------------------------------
     # Short, because an access token cannot be revoked once issued - the only
     # limit on a stolen one is how soon it expires.
@@ -155,8 +206,17 @@ class Settings(DatabaseSettings):
     #:                meant to replay must not silently run on invented data.
     #:   synthesize - derive a shape-correct object from the schema. For
     #:                developing a phase before any recording of it exists.
+    #:   scripted   - (Day 25) answer from a deterministic, *documented* scripted
+    #:                model (app/simulation/scripted_llm.py), registered by the
+    #:                app at boot. For running whole interviews offline - the
+    #:                plan's "scripted candidate, with a stubbed LLM". Its grades
+    #:                follow a fixed rule, not a model's judgement.
     #: Either way the answer records which happened, in CallMeta.structured_mode.
-    llm_stub_on_missing: Literal["strict", "synthesize"] = "strict"
+    llm_stub_on_missing: Literal["strict", "synthesize", "scripted"] = "strict"
+    #: Seconds the scripted stub waits before answering. 0 in normal use; the
+    #: Day-25 process-kill drill raises it so a grade is in flight when the API
+    #: process is killed.
+    llm_stub_scripted_delay_s: float = Field(default=0.0, ge=0, le=120)
 
     # --- Embeddings and retrieval (Day 8) -----------------------------------
     # Embeddings are NOT an LLM concern and deliberately do not go through the

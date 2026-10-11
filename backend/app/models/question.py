@@ -42,6 +42,8 @@ class Question(Base):
     # always read whole, with the question, and never queried across rows.
     expected_concepts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     reference_answer: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # Day 22 (migration 0004): the grader's Pass A input that ingest used to drop.
+    common_misconceptions: Mapped[list[str] | None] = mapped_column(ARRAY(sa.Text), nullable=True)
     follow_up_seeds: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     anchor_terms: Mapped[list[str] | None] = mapped_column(ARRAY(sa.Text), nullable=True)

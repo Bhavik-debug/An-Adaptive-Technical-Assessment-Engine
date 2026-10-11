@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cache import get_redis
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
+from app.interview.cache import SessionStateCache
 from app.models import User
 from app.obs import set_user_id
 from app.obs.tracing import set_span_attributes
@@ -49,6 +50,14 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
 def get_cache() -> Redis:
     return get_redis()
+
+
+def get_session_cache(
+    redis: Annotated[Redis, Depends(get_cache)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> SessionStateCache:
+    """The Redis copy of interview session state (``app.interview.cache``)."""
+    return SessionStateCache.from_settings(redis, settings)
 
 
 # auto_error=False: we want to return our own 401 shape rather than FastAPI's,
@@ -106,3 +115,4 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_app_settings)]
 CacheClient = Annotated[Redis, Depends(get_cache)]
+SessionCache = Annotated[SessionStateCache, Depends(get_session_cache)]

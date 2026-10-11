@@ -33,6 +33,10 @@ VALID_ENV: dict[str, str] = {
     # Config refuses to boot with "nvidia" in the routing order and no key.
     # Not a credential: no unit test reaches the network.
     "NVIDIA_API_KEY": "unit-test-placeholder",
+    # Day 22: the app starts a background grading worker by default. Tests that
+    # want one start it explicitly with a scripted grader; the default
+    # environment must never let a test reach a real provider.
+    "GRADING_WORKER_ENABLED": "false",
 }
 
 

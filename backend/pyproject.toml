@@ -31,6 +31,12 @@ dependencies = [
     # SQLAlchemy the `vector` column type and the distance operators. The
     # *extension* is installed by infra/postgres/init/001-extensions.sql.
     "pgvector>=0.3,<0.4",
+    # Resume PDF text extraction (Day 24). The plan's choice (sections 3 and 13):
+    # faster and more layout-accurate than pdfminer/PyPDF2. LICENSE: dual
+    # AGPL-3.0 / Artifex commercial. Run only inside an isolated child process
+    # (app/ingestion/files.py). The AGPL obligations for a *public* network
+    # service must be decided before the Day-30 deploy - see docs/ingestion.md.
+    "pymupdf>=1.24,<1.29",
 ]
 
 [project.optional-dependencies]
@@ -118,6 +124,9 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 "scripts/update_grading_baseline.py" = ["S105", "S106"]
 "scripts/run_injection_suite.py" = ["S105", "S106"]
 "scripts/recheck_bias_probes.py" = ["S105", "S106"]
+# S107: the Day-25 scripted candidate registers a throwaway local test account;
+# its default password is a fixture value for a local server, not a credential.
+"scripts/scripted_interview.py" = ["S107"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -134,5 +143,5 @@ disallow_untyped_defs = false
 # Both are used behind our own typed wrappers (app/models/question.py and
 # app/retrieval/embedders.py), which is where the types that matter are declared.
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "fastembed.*"]
+module = ["pgvector.*", "fastembed.*", "pymupdf.*", "fitz.*"]
 ignore_missing_imports = true

@@ -105,7 +105,9 @@ class TestTheVariantRegistry:
             register_prompt_variant(impostor)
 
     def test_a_task_with_no_prompt_lists_nothing(self):
-        assert prompt_versions(TaskName.FINAL_REPORT) == []
+        # Was FINAL_REPORT until Day 25 registered the report prompt; the V3
+        # deep-dive agent (Day 41) still has none.
+        assert prompt_versions(TaskName.DEEP_DIVE_AGENT) == []
 
 
 class TestTheVariantsAreNested:
