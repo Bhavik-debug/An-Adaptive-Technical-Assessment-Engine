@@ -50,6 +50,22 @@ Those four commands are exactly what CI runs — see "Continuous integration".
 Point `DATABASE_URL`/`REDIS_URL` at `localhost:5433` / `localhost:6380` and run
 `uvicorn app.main:create_app --factory --reload` from `backend/`.
 
+### The frontend (Day 26)
+
+```bash
+cd frontend
+npm ci
+npm run dev                   # http://localhost:5173, proxies /api to localhost:8000
+```
+
+If the API is on another port, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+The app has to be served from the API's origin, because the refresh cookie is
+`SameSite=Strict` and the API has no CORS. The Vite proxy handles this locally.
+Sign-in, the dashboard and the three-step setup wizard work. The interview and
+report screens (Days 27–28) are placeholders. See
+[`docs/frontend.md`](docs/frontend.md). **Nothing is deployed:** deployment
+waits for the project owner's explicit approval.
+
 ---
 
 ## Health endpoints, and why there are two
@@ -1031,6 +1047,10 @@ and run once when the database volume is first created.
 ## Repository layout
 
 ```
+frontend/src/         React 18 + Vite + TS + Tailwind SPA (Day 26) — docs/frontend.md
+  api/                the one HTTP client, endpoint wrappers, contract types
+  auth/               session restore/refresh, route guards
+  pages/              sign-in/up, dashboard, setup wizard, Day-27/28 placeholders
 backend/app/          FastAPI modular monolith
   config.py           pydantic-settings; fails fast at boot on a bad environment
   db.py / cache.py    Postgres + Redis lifecycle and probes

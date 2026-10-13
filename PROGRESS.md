@@ -6,6 +6,8 @@ If a gate is not met on the last day of a phase, apply that phase's cut-line
 
 **Deployment rule for this build:** nothing is deployed publicly before Day 30.
 Days 1–29 are developed and verified entirely locally.
+**Owner override (Day 26):** deployment waits for the project owner's explicit
+approval, even after Day 30. See Phase 6 below.
 
 ---
 
@@ -346,8 +348,25 @@ confidence-bias and injection-ASR gates fail on measured evidence. None of that
 was revisited. The FSM records `ANSWER_GRADED.score` from whatever produced it;
 recording a grade does not make it more valid.
 
-## Phase 6 — Days 26–30 — Frontend + DEPLOY 🚩 V1 LIVE  ⬜
-- [ ] Public HTTPS URL, working signup, interview, report  *(first public deploy — Day 30)*
+## Phase 6 — Days 26–30 — Frontend + DEPLOY 🚩 V1 LIVE  🚧
+
+**Deployment is on hold by the project owner's instruction (Day 26).** No
+deployment, public URL, cloud provisioning, production secrets, deploy pipeline
+run, commit or push happens until the owner explicitly approves it. Reaching
+Day 29 or Day 30 is not that approval. When the frontend MVP passes its local
+acceptance checks, work stops and is reported for the owner's decision.
+
+**Day 26 delivered** (plan §3's Day-26 row, local only): `frontend/` with React
+18, Vite, TypeScript, Tailwind and shadcn-style components. It has sign-up and
+sign-in, session restore and refresh that follow the backend's single-use cookie
+design, protected routes, and a dashboard (real session history plus a skill
+overview from the latest ready report only). It also has the three-step setup
+wizard (resume → JD → settings → create + start). It adds two read-only backend
+endpoints the dashboard and wizard needed (`GET /api/sessions`,
+`GET /api/setup-options`). See `docs/frontend.md`. The interview and report
+screens (Days 27–28) are placeholders.
+
+- [ ] Public HTTPS URL, working signup, interview, report  *(on hold — owner approval required)*
 - [ ] Demo account with seeded data linked from the landing page
 - [ ] Restore-from-backup drill performed and documented in `docs/runbook.md`
 - [ ] README shows the convergence chart and the QWK number in the first screenful
@@ -4179,3 +4198,63 @@ own threshold reporting honestly that 10 items cannot place 20+ subtopics.
 
 **Phase 5's four exit gates are met on executed evidence,** each with the scope
 stated in its checkbox above. Phase 4 is unchanged (acceptance-pending).
+
+### Day 26 — the frontend foundation: auth, dashboard, setup wizard
+
+**Audit findings that shaped the day:**
+
+- No frontend existed. The plan's stack (React 18, Vite, TS, Tailwind,
+  shadcn/ui) was built from scratch in `frontend/`.
+- The refresh cookie is `httpOnly`, `SameSite=Strict`, `Path=/api/auth`, and
+  the API has **no CORS**. So the SPA must be same-origin with the API. Locally,
+  the Vite proxy does this.
+- Refresh tokens are **single-use with replay detection**. Two overlapping
+  refreshes (StrictMode, two tabs, parallel 401s) would revoke the session, so
+  the client serialises them.
+- **Two Day-26 blockers in the API:**
+  1. Nothing listed a user's sessions, which the dashboard needs.
+  2. Nothing exposed the taxonomy or the level/mode rules. The wizard may only
+     offer accepted options, and `PATCH …/profile` rejects unknown subtopic keys.
+- There are no password-reset, email-verification or OAuth endpoints, and none
+  were invented.
+
+**What was built** (`docs/frontend.md`):
+
+| Piece | Where |
+|---|---|
+| Central API client: the access token is held in memory only. A 401 triggers one refresh, shared in-tab and serialised across tabs with Web Locks, then one retry. Errors are typed, keeping status, code and 422 field messages | `frontend/src/api/client.ts` |
+| Session restore, sign-in, sign-up, sign-out, the "session has ended" path, protected and public-only routes, and an open-redirect guard | `frontend/src/auth/`, `src/lib/redirect.ts` |
+| Dashboard: real session history (loading, empty and error states) with candidate-facing statuses. Skill overview **only** from the newest completed session with a ready report: display score, 95 % interval, and insufficient-evidence labels, with a note that the grader is still being validated. No sample data | `frontend/src/pages/dashboard/` |
+| Wizard, step 1: upload, then poll, then review/edit/confirm the profile (exact `CandidateProfile` body), with manual entry on failure. Skippable | `frontend/src/pages/setup/ResumeStep.tsx`, `ProfileEditor.tsx` |
+| Wizard, step 2: JD paste with length checks, then poll. Shows verbatim requirements and topics; failed or unmapped JDs fall back to manual topics. Skippable | `JobDescriptionStep.tsx` |
+| Wizard, step 3: only backend options; JD-derived topics by default (no `topics` sent). Create is double-click guarded and **never repeated**. A failed start is retried with idempotent `/start` only. "Started" is shown only after the server confirms | `ConfigStep.tsx` |
+| Day 27/28 routes as labelled placeholders | `frontend/src/pages/placeholders.tsx` |
+| `GET /api/sessions` (read-only, owner-filtered, no grades or selection internals) | `backend/app/api/sessions.py` |
+| `GET /api/setup-options` (taxonomy + levels/modes/duration bounds; no θ, pacing or difficulty) | `backend/app/api/setup.py` |
+
+**Evidence (all local):**
+
+- Frontend: `npm test` → **53 passed** (5 files). `tsc -b`, ESLint (with
+  jsx-a11y and `no-console`), Prettier and `vite build` are all clean.
+  `npm audit` → 0 vulnerabilities, after moving to react-router 7.18 (fixes an
+  open-redirect advisory in v6) and vitest 4.1.11.
+- Backend: `test_dashboard_api.py` → **9 passed** against real Postgres and
+  Redis. `ruff check`, `ruff format --check` and `mypy --strict app` (139
+  files) are clean. The full suite (excluding `tests/smoke`) is recorded
+  below.
+- Live contract smoke (scratch script, not committed): the real API on a
+  throwaway DB with the **offline scripted stub** (no NVIDIA calls), driven
+  through the Vite proxy. **22/22 checks passed**: cookie flags, refresh
+  rotation, `/me`, the empty list, setup-options, resume upload → `ready`
+  with contact details redacted, profile confirm, extra field → 422, JD
+  too_short → 422, JD → `ready`, JD-without-topics create → 422, create → 201,
+  start + replay (`Idempotent-Replayed`), the list showing `ASKING` with no
+  internals, logout → 204, and refresh after logout → 401. The API log
+  contained no resume text or emails. The throwaway DB was then dropped and
+  Redis DB 14 flushed.
+- **Not done:** no visual, responsive, keyboard-only or screen-reader pass in
+  a real browser. The browser automation extension was not connected. This is
+  on the owner's checklist.
+
+**Not deployed, committed or pushed.** Deployment is on hold pending the
+owner's approval (see Phase 6).

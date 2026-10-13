@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, health, ingestion, sessions
+from app.api import auth, health, ingestion, sessions, setup
 from app.bank.taxonomy import load_taxonomy
 from app.cache import dispose_redis, get_redis, init_redis
 from app.config import Settings, get_settings
@@ -146,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(ingestion.router)
+    app.include_router(setup.router)
 
     # Order matters. Starlette runs the most recently added middleware
     # outermost, and `instrument_app` adds one of its own - so instrumenting

@@ -1,4 +1,4 @@
-"""Sessions: create, start (Day 23); submit, status, stream (Day 22).
+"""Sessions: create, start (Day 23); submit, status, stream (Day 22); list (Day 26).
 
 Plan §13.8::
 
@@ -26,7 +26,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -336,6 +336,70 @@ async def create(
         start_url=f"{base}/start",
         stream_url=f"{base}/stream",
     )
+
+
+class SessionSummary(BaseModel):
+    """One row of ``GET /api/sessions`` (Day 26, the dashboard).
+
+    Deliberately narrow: what the candidate configured and where the session
+    stands.  No grades, no ability estimates and none of the blueprint's
+    selection internals (difficulty window, target theta, quotas)."""
+
+    session_id: uuid.UUID
+    state: str
+    role: str | None
+    level: str | None
+    mode: str | None
+    topic_keys: list[str]
+    resume_id: uuid.UUID | None
+    jd_id: uuid.UUID | None
+    started_at: dt.datetime
+    ended_at: dt.datetime | None
+    #: ``None`` until the session reaches REPORTING and its report row exists.
+    report_status: str | None
+
+
+class SessionList(BaseModel):
+    sessions: list[SessionSummary]
+
+
+@router.get("", summary="The caller's sessions, newest first (Day 26)")
+async def list_sessions(
+    user: CurrentUser,
+    maker: Maker,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> SessionList:
+    async with maker() as db:
+        rows = (
+            await db.execute(
+                sa.select(InterviewSession, Report.status)
+                .outerjoin(Report, Report.session_id == InterviewSession.id)
+                .where(InterviewSession.user_id == user.id)
+                .order_by(InterviewSession.started_at.desc(), InterviewSession.id)
+                .limit(limit)
+            )
+        ).all()
+    sessions: list[SessionSummary] = []
+    for session, report_status in rows:
+        blueprint = session.blueprint or {}
+        sessions.append(
+            SessionSummary(
+                session_id=session.id,
+                state=session.state,
+                role=blueprint.get("role"),
+                level=blueprint.get("level"),
+                mode=blueprint.get("mode"),
+                topic_keys=[
+                    str(t["topic_key"]) for t in blueprint.get("topics", []) if "topic_key" in t
+                ],
+                resume_id=session.resume_id,
+                jd_id=session.jd_id,
+                started_at=session.started_at,
+                ended_at=session.ended_at,
+                report_status=report_status,
+            )
+        )
+    return SessionList(sessions=sessions)
 
 
 @router.post(
