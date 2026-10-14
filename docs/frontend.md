@@ -1,13 +1,18 @@
-# Frontend (Phase 6, Day 26)
+# Frontend (Phase 6, Days 26–27)
 
-The candidate-facing single-page app: authentication, a dashboard, and the
-three-step interview setup wizard. It lives in `frontend/` and talks only to
-the existing FastAPI backend. **Nothing here is deployed** — see
-"Local-only status" at the end.
+The candidate-facing single-page app: authentication (email/password and,
+from Day 27, "Continue with Google"), a dashboard, the three-step interview
+setup wizard and, from Day 27, the interview screen. It lives in `frontend/`
+and talks only to the existing FastAPI backend. **Nothing here is deployed** —
+see "Local-only status" at the end.
 
-Day 27 (the interview screen) and Day 28 (the report screen) are **not**
-implemented. Their routes exist only as clearly labelled placeholders so the
-wizard has somewhere honest to hand off to.
+Day 27 additions have their own documents:
+[`google-sign-in.md`](google-sign-in.md) and
+[`interview-screen.md`](interview-screen.md). Day 28 (the report screen) is
+**not** implemented; its route is a clearly labelled placeholder.
+
+Sections below describe Day 26 unless they say otherwise; Day 26's results are
+kept as recorded.
 
 ---
 
@@ -62,23 +67,23 @@ value is public.
 
 ```
 frontend/src/
-├── api/            client.ts (the only fetch), auth/sessions/ingestion/setup endpoints, types.ts
+├── api/            client.ts (the only fetch), auth/sessions/ingestion/setup endpoints, stream.ts (SSE, Day 27), types.ts
 ├── auth/           AuthProvider (session state), guards (RequireAuth, PublicOnly)
-├── components/     AppLayout, AuthLayout, FormField, EmptyState, StatusBadge, …
+├── components/     AppLayout, AuthLayout, FormField, EmptyState, StatusBadge, GoogleSignIn (Day 27), …
 │   └── ui/         shadcn-style primitives: button, input, textarea, select, label, card, badge, alert, skeleton
 ├── hooks/          useApiData (abortable load), usePolling (job status), useSetupOptions
-├── lib/            format, validation, redirect, session, setup helpers
-├── pages/          LoginPage, RegisterPage, dashboard/, setup/, placeholders
+├── lib/            format, validation, redirect, session, setup helpers; sse, googleIdentity (Day 27)
+├── pages/          LoginPage, RegisterPage, dashboard/, setup/, interview/ (Day 27), placeholders
 └── test/           Vitest setup and the fetch-routing mock
 ```
 
 | Route | Access | Screen |
 |---|---|---|
 | `/` | — | redirects to `/dashboard` |
-| `/login`, `/register` | signed-out only | sign in / create account |
+| `/login`, `/register` | signed-out only | sign in / create account (email, or Google when configured — Day 27) |
 | `/dashboard` | signed-in | welcome, start button, past interviews, skill overview |
 | `/interviews/new` | signed-in | the three-step setup wizard |
-| `/interviews/:id` | signed-in | **placeholder** for Day 27's interview screen |
+| `/interviews/:id` | signed-in | the interview screen (Day 27; was a placeholder on Day 26) |
 | `/interviews/:id/report` | signed-in | **placeholder** for Day 28's report screen |
 | `*` | — | not found |
 
@@ -220,9 +225,13 @@ is never rendered.
   font stack; 0.5 rem radii; no gradients, glass effects or decorative motion.
   Spinners and skeleton pulses only, and both are disabled under
   `prefers-reduced-motion`.
-* Responsive from 320 px: single column on mobile, two-column dashboard from
-  `lg`, wrapping button rows, navigation that drops below the brand on small
-  screens.
+* Written mobile-first: single column by default, two-column dashboard from
+  Tailwind's `lg` breakpoint, wrapping button rows, and navigation that drops
+  below the brand on small screens. **This layout has not yet been checked in
+  a real browser at any width** (see §10).
+* Contrast: every text/background token pair the UI uses computes to at least
+  4.5:1 (WCAG AA), from 5.3:1 for the warning badge to 17.7:1 for body text.
+  This was calculated from the OKLCH tokens, not measured on rendered pages.
 * Every input has a `<label>`; errors are linked with `aria-describedby` and
   `aria-invalid`, and focus moves to the first invalid field. Error alerts use
   `role="alert"`, progress uses `role="status"`. Visible focus rings
@@ -249,6 +258,29 @@ creating a session.
 
 ## 9. Tests
 
+**Day 27 results (local):** `npm test` 96 passed, 0 failed (9 files);
+typecheck, lint, format:check and build exit 0; `npm audit` 0 vulnerabilities;
+backend full suite 3134 passed, 0 failed, 0 skipped, 22 deselected. The new
+test files are listed in `interview-screen.md` §5 and `google-sign-in.md` §6,
+and the full evidence is in PROGRESS.md, Day 27. The Day 26 record below is
+unchanged.
+
+**Final results (Day 26, local):**
+
+| Check | Result |
+|---|---|
+| `npm test` | 53 passed, 0 failed (5 files) |
+| `npm run typecheck` / `lint` / `format:check` / `build` | all exit 0 |
+| `npm audit` | 0 vulnerabilities |
+| Backend full suite (`pytest --ignore=tests/smoke`, quiet machine) | **3067 passed, 0 failed, 0 skipped, 22 deselected**, exit 0 (11 min 57 s; JUnit XML agrees) |
+| Backend `ruff check`, `ruff format --check`, `mypy --strict app` | clean |
+
+The 22 deselected are the `not smoke and not embeddings` marker filter.
+`tests/smoke` was not collected at all, which is why Day 25's run shows 23.
+`test_live_client_disconnect_releases_the_server` failed in 2 earlier full
+runs and passed in the final one. It is a **pre-existing intermittent
+failure**, not caused by Day 26 (see §10).
+
 `npm test` — 53 tests in 5 files:
 
 | File | Covers |
@@ -261,20 +293,29 @@ creating a session.
 
 ## 10. Known limitations and deferred work
 
-* **Day 27/28 not built:** the interview screen (question pane, answer
-  submission, SSE, timer) and the report screen are placeholders.
+* **Day 28 not built:** the report screen is a placeholder. (On Day 26 the
+  interview screen was too; Day 27 built it — see `interview-screen.md`.)
 * **Same-origin only.** Cross-origin hosting would need a backend decision on
   CORS and `SameSite=None; Secure` (already noted in `auth.py`).
 * **Wizard state is in memory.** A page reload loses the step and the
   resume/JD ids (the uploaded resume and JD remain on the server; there is no
   endpoint to list them).
-* **No session detail endpoint**, so the interview placeholder shows only what
-  the start call confirmed.
+* ~~No session detail endpoint~~ — added on Day 27 (`GET /api/sessions/{id}`).
 * **The skill overview uses the latest completed report only**; trend over time
   is not shown.
 * **Client limits mirror backend defaults** (5 MB, 40–20 000 chars); if those
   settings are changed server-side, the server's message is still shown.
 * **No end-to-end browser test suite yet** (Playwright is planned for Day 30).
+* **Pre-existing intermittent backend test failure**, not introduced on Day 26:
+  `tests/integration/test_session_stream.py::test_live_client_disconnect_releases_the_server`
+  asserts that no connection in the test DB is `idle in transaction`. It
+  failed in 2 of the 3 Day-26 full runs whose outcome was captured, and
+  passes on its own. A diagnostic run against the **unchanged Day-25 code**
+  (commit `dffa584`, in a throwaway git worktree) reproduced the condition in
+  1 of 3 attempts. One connection stayed `idle in transaction` for all 2000
+  samples (about 10 s), and its last statement was `;`, which looks like a
+  pool liveness ping. Day 26 does not touch the stream, the worker or the
+  engine/pool, so it is recorded here and left for a separate fix.
 * Accessibility was checked with jsx-a11y lint and Testing Library role/label
   queries only. **No visual, responsive, keyboard-only, axe or screen-reader
   pass in a real browser has been performed yet** (the browser automation
@@ -282,6 +323,8 @@ creating a session.
 
 ## 11. Local-only status
 
-Nothing was deployed, published, provisioned, committed or pushed for Day 26.
+Nothing was deployed, published or provisioned for Day 26, and no deploy
+pipeline was run. The Day-26 agent made **no git commit or push**. The project
+owner committed and pushed the work themselves as `9cf1d33` ("Phase 6 …").
 `npm run build` produces a local `dist/` (git-ignored) only. Deployment (plan
 Day 29) is on hold until the project owner explicitly approves it.

@@ -3,8 +3,11 @@ import type {
   Report,
   SessionCreate,
   SessionCreated,
+  SessionDetail,
   SessionStarted,
   SessionSummary,
+  TurnStatus,
+  TurnSubmission,
 } from './types';
 
 /** GET /api/sessions -> the caller's sessions, newest first. */
@@ -26,6 +29,39 @@ export function startSession(sessionId: string): Promise<SessionStarted> {
   return apiRequest<SessionStarted>(`/api/sessions/${encodeURIComponent(sessionId)}/start`, {
     method: 'POST',
   });
+}
+
+/** backend/app/grading/grader.py: MAX_ANSWER_CHARS (TurnSubmission.answer's max_length). */
+export const MAX_ANSWER_CHARS = 8000;
+
+/** GET /api/sessions/{id} -> the session's current state and question (404 if not yours). */
+export function getSession(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
+  return apiRequest<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal });
+}
+
+/**
+ * POST /api/sessions/{id}/turns -> 202 accepted, or 200 for a retry of the same
+ * turn. Idempotent on `turn_id` **with the exact same answer text**: resending
+ * after an unknown outcome is safe only with both unchanged.
+ */
+export function submitTurn(
+  sessionId: string,
+  submission: TurnSubmission,
+  signal?: AbortSignal,
+): Promise<TurnStatus> {
+  return apiRequest<TurnStatus>(`/api/sessions/${encodeURIComponent(sessionId)}/turns`, {
+    method: 'POST',
+    json: submission,
+    signal,
+  });
+}
+
+/** GET /api/sessions/{id}/turns/{turn_id} -> where one answer's grading stands. */
+export function getTurn(sessionId: string, turnId: string, signal?: AbortSignal) {
+  return apiRequest<TurnStatus>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}`,
+    { signal },
+  );
 }
 
 /** GET /api/sessions/{id}/report -> 200 ready, 202 being built, 409 not finished. */

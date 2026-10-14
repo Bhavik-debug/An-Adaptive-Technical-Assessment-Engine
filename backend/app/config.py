@@ -161,6 +161,13 @@ class Settings(DatabaseSettings):
     # Plan section 14.1: lockout after 10 failures.
     login_max_failures: int = Field(default=10, gt=0, le=100)
     login_lockout_minutes: int = Field(default=15, gt=0, le=1440)
+    # Day 27: "Continue with Google" (app/google_auth.py). The OAuth *client ID*
+    # of a Google Cloud "Web application" client - public by design: it is the
+    # `aud` every ID token must carry, and the browser needs it to render the
+    # button. Unset = Google sign-in is off (the endpoint answers 503 and the
+    # SPA hides the button). There is no client secret: the ID-token flow does
+    # not use one.
+    google_client_id: str | None = None
 
     # --- LLM chokepoint (plan section 13.3) --------------------------------
     # Comma-separated, highest priority first. A plain string rather than a
@@ -312,6 +319,18 @@ class Settings(DatabaseSettings):
     def _check_redis_url(cls, v: str) -> str:
         if not v.startswith(("redis://", "rediss://")):
             raise ValueError("must start with redis:// or rediss://")
+        return v
+
+    @field_validator("google_client_id")
+    @classmethod
+    def _check_google_client_id(cls, v: str | None) -> str | None:
+        # A typo here would otherwise surface only as "every Google sign-in
+        # fails audience verification" - refuse to boot instead.
+        if v is None or not v.strip():
+            return None
+        v = v.strip()
+        if not v.endswith(".apps.googleusercontent.com") or any(c.isspace() for c in v):
+            raise ValueError("must be a Google OAuth client ID ending .apps.googleusercontent.com")
         return v
 
     @field_validator("llm_provider_order")

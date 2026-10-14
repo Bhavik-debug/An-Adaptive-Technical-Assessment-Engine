@@ -1,7 +1,6 @@
 import { Construction } from 'lucide-react';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 
-import { Alert } from '@/components/ui/alert';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -14,43 +13,7 @@ function NotBuiltYet({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Hand-off target after the wizard starts a session. The interview screen
- * itself is Day 27; this page says only what the backend has confirmed.
- */
-export function InterviewPlaceholderPage() {
-  const { sessionId } = useParams();
-  const location = useLocation();
-  const started = (location.state as { started?: boolean } | null)?.started === true;
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle as="h1" className="text-xl">
-            Interview
-          </CardTitle>
-          <CardDescription>Session {sessionId}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {started && (
-            <Alert variant="success" title="Your interview has started">
-              The server confirmed the session is running and your first question is ready.
-            </Alert>
-          )}
-          <NotBuiltYet>
-            The interview screen is not available in this build yet. Your session is saved and
-            appears on your dashboard.
-          </NotBuiltYet>
-          <Link to="/dashboard" className={buttonVariants({ variant: 'outline' })}>
-            Back to dashboard
-          </Link>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/** The report screen is Day 28. */
+/** The report screen is Day 28: a labelled placeholder until then. */
 export function ReportPlaceholderPage() {
   const { sessionId } = useParams();
   return (

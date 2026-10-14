@@ -14,6 +14,12 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+/** AuthProviders (GET /api/auth/providers). `google_client_id` is public; null = off. */
+export interface AuthProviders {
+  password: boolean;
+  google_client_id: string | null;
+}
+
 /** UserResponse */
 export interface User {
   id: string;
@@ -187,6 +193,85 @@ export interface SessionStarted {
   turns_url: string;
   stream_url: string;
 }
+
+/** SessionDetail (GET /api/sessions/{id}, Day 27) */
+export interface SessionDetail {
+  session_id: string;
+  state: SessionState | string;
+  /** The last event's seq: the stream's Last-Event-ID. */
+  seq: number;
+  role: string | null;
+  level: string | null;
+  mode: string | null;
+  topic_keys: string[];
+  started_at: string;
+  ended_at: string | null;
+  report_status: ReportStatus | string | null;
+  /** Being answered (ASKING) or just answered (GRADING/PROBING/SELECTING); else null. */
+  question: Question | null;
+  /** Bank questions asked so far, including the current one. There is no total. */
+  questions_asked: number;
+  follow_ups_asked: number;
+  /** The answer being graded, while one is. */
+  current_turn_id: string | null;
+  stream_url: string;
+  turns_url: string;
+}
+
+/** TurnSubmission (extra fields forbidden). `turn_id` is the idempotency key. */
+export interface TurnSubmission {
+  turn_id: string;
+  answer: string;
+}
+
+export type GradingStatus = 'pending' | 'processing' | 'graded' | 'failed';
+
+/** TurnStatus. `score` exists in the contract; the interview screen never shows it. */
+export interface TurnStatus {
+  session_id: string;
+  turn_id: string;
+  question_id: string | null;
+  status: GradingStatus | string;
+  attempts: number;
+  score: number | null;
+  error_code: string | null;
+  submitted_at: string;
+  graded_at: string | null;
+  status_url: string;
+  stream_url: string;
+}
+
+// backend/app/interview/stream.py: SSE event names and their whitelisted data --
+
+/** Every SSE message carries the event's seq and the state after it. */
+export interface StreamEventBase {
+  seq: number;
+  state: SessionState | string;
+}
+
+export type StreamEvent =
+  | ({ type: 'grading_started'; turn_id: string } & StreamEventBase)
+  | ({ type: 'grade_ready'; turn_id: string } & StreamEventBase)
+  | ({
+      type: 'grading_failed';
+      turn_id: string;
+      error_code: string | null;
+      retries_exhausted: boolean | null;
+    } & StreamEventBase)
+  | ({ type: 'follow_up' } & StreamEventBase)
+  | ({
+      type: 'follow_up_abandoned';
+      error_code: string | null;
+      retries_exhausted: boolean | null;
+    } & StreamEventBase)
+  | ({
+      type: 'next_question';
+      question_id: string | null;
+      is_follow_up: boolean;
+      text: string | null;
+    } & StreamEventBase)
+  | ({ type: 'session_complete'; report_id: string | null } & StreamEventBase)
+  | ({ type: 'state_changed'; event_type: string } & StreamEventBase);
 
 // backend/app/reporting/stats.py (the subset the dashboard reads) -------------
 

@@ -1,4 +1,4 @@
-"""Sessions: create, start (Day 23); submit, status, stream (Day 22); list (Day 26).
+"""Sessions: create, start (Day 23); submit, status, stream (Day 22); list (26); detail (27).
 
 Plan §13.8::
 
@@ -40,7 +40,7 @@ from app.interview.events import InvalidEventPayload
 from app.interview.flow import NoEligibleQuestion
 from app.interview.fsm import IllegalTransition
 from app.interview.lifecycle import start_session
-from app.interview.service import create_session
+from app.interview.service import create_session, load_state
 from app.interview.state import EventLogCorrupted, SessionState
 from app.interview.store import SeqConflict, SessionNotFound, head_seq
 from app.interview.stream import event_stream, parse_last_event_id
@@ -400,6 +400,93 @@ async def list_sessions(
             )
         )
     return SessionList(sessions=sessions)
+
+
+#: States in which ``SessionState.current_question_*`` is the question the
+#: candidate is answering (ASKING) or has just answered (the rest).
+_QUESTION_STATES = frozenset({"ASKING", "GRADING", "PROBING", "SELECTING"})
+
+
+class SessionDetail(BaseModel):
+    """``GET /api/sessions/{id}`` (Day 27): where one session stands *now*.
+
+    The interview screen's snapshot: it renders from this, then follows
+    ``GET .../stream`` with ``Last-Event-ID: <seq>``, so it misses nothing and
+    sees nothing twice.  The same narrow, candidate-facing view as
+    :class:`SessionSummary`, plus the question in front of the candidate and
+    honest counts.  No grades, no ability estimates, no selection internals
+    (difficulty window, target theta, quotas, item budget, stop reasons)."""
+
+    session_id: uuid.UUID
+    state: str
+    #: The last event's seq - pass it as ``Last-Event-ID`` to the stream.
+    seq: int
+    role: str | None
+    level: str | None
+    mode: str | None
+    topic_keys: list[str]
+    started_at: dt.datetime
+    ended_at: dt.datetime | None
+    report_status: str | None
+    #: The question being answered (``ASKING``) or just answered (``GRADING``,
+    #: ``PROBING``, ``SELECTING``); ``None`` before the first question and
+    #: once the interview is over.
+    question: QuestionOut | None
+    #: Bank questions asked so far, including the current one.  Follow-ups are
+    #: counted separately.  There is no "total": the stopping rule decides.
+    questions_asked: int
+    follow_ups_asked: int
+    #: The answer being graded, while one is (``None`` otherwise).  Poll it at
+    #: ``GET .../turns/{turn_id}``.
+    current_turn_id: uuid.UUID | None
+    stream_url: str
+    turns_url: str
+
+
+@router.get(
+    "/{session_id}",
+    summary="One session's current state and question (Day 27)",
+    responses={404: {"description": "No such session for this user"}},
+)
+async def get_session(
+    session_id: uuid.UUID, user: CurrentUser, maker: Maker, cache: SessionCache
+) -> SessionDetail:
+    with _domain_errors():
+        async with maker() as db:
+            # Ownership: load_state's head_seq filters on user_id; a stranger's
+            # session is the same 404 as a missing one.
+            state = await load_state(db, cache, session_id=session_id, user_id=user.id)
+            row = (
+                await db.execute(
+                    sa.select(InterviewSession, Report.status)
+                    .outerjoin(Report, Report.session_id == InterviewSession.id)
+                    .where(InterviewSession.id == session_id, InterviewSession.user_id == user.id)
+                )
+            ).one_or_none()
+    if row is None:  # pragma: no cover - load_state already proved it exists
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, report_status = row
+    blueprint = session.blueprint or {}
+    fsm_state = str(state.state)
+    base = f"/api/sessions/{session_id}"
+    return SessionDetail(
+        session_id=session_id,
+        state=fsm_state,
+        seq=state.seq,
+        role=blueprint.get("role"),
+        level=blueprint.get("level"),
+        mode=blueprint.get("mode"),
+        topic_keys=[str(t["topic_key"]) for t in blueprint.get("topics", []) if "topic_key" in t],
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        report_status=report_status,
+        question=_question(state) if fsm_state in _QUESTION_STATES else None,
+        questions_asked=len(state.asked_question_ids),
+        follow_ups_asked=state.follow_ups_asked,
+        current_turn_id=state.current_turn_id if fsm_state == "GRADING" else None,
+        stream_url=f"{base}/stream",
+        turns_url=f"{base}/turns",
+    )
 
 
 @router.post(

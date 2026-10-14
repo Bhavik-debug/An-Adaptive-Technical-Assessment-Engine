@@ -7,6 +7,7 @@ import type { LoginRedirectState } from '@/auth/guards';
 import { safeRedirectPath } from '@/lib/redirect';
 import { AuthLayout } from '@/components/AuthLayout';
 import { FormField } from '@/components/FormField';
+import { GoogleSignIn } from '@/components/GoogleSignIn';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,10 +26,12 @@ export function LoginPage() {
   const [errors, setErrors] = React.useState<FieldErrors<Field>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  // Google's exchange is in flight: the email form waits for it.
+  const [googleBusy, setGoogleBusy] = React.useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || googleBusy) return;
     const next: FieldErrors<Field> = {};
     const emailError = validateEmail(email);
     const passwordError = validateLoginPassword(password);
@@ -78,7 +81,13 @@ export function LoginPage() {
         </>
       }
     >
-      <form noValidate onSubmit={handleSubmit} className="space-y-4">
+      <GoogleSignIn
+        mode="signin"
+        disabled={submitting}
+        onBusyChange={setGoogleBusy}
+        onSuccess={() => navigate(safeRedirectPath(from), { replace: true })}
+      />
+      <form noValidate onSubmit={handleSubmit} className="mt-4 space-y-4">
         {sessionExpired && !formError && (
           <Alert variant="warning" title="Your session has ended">
             Please sign in again to continue.
@@ -106,7 +115,7 @@ export function LoginPage() {
               inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || googleBusy}
             />
           )}
         </FormField>
@@ -118,11 +127,11 @@ export function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || googleBusy}
             />
           )}
         </FormField>
-        <Button type="submit" className="w-full" loading={submitting}>
+        <Button type="submit" className="w-full" loading={submitting} disabled={googleBusy}>
           {submitting ? 'Signing in…' : 'Sign in'}
         </Button>
         <p className="text-xs text-muted-foreground">

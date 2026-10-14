@@ -27,9 +27,21 @@ class User(Base):
     # future code path can forget to normalise.
     email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
     # An argon2id digest, never the password. Length varies with the parameters,
-    # so this is TEXT rather than a fixed-width column.
-    password_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # so this is TEXT rather than a fixed-width column. NULL for an account
+    # created with Google (migration 0008): such an account has no password,
+    # and none is invented for it - password login simply cannot succeed.
+    password_hash: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # Google's stable account id (the ID token's `sub`), for accounts created
+    # with "Continue with Google". Unique; never the email, which can change.
+    # CHECK ck_users_has_credential: every row has a password or a Google id.
+    google_sub: Mapped[str | None] = mapped_column(sa.Text, unique=True, nullable=True)
     created_at: Mapped[dt.datetime] = utc_now_column()
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "password_hash IS NOT NULL OR google_sub IS NOT NULL", name="has_credential"
+        ),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User {self.email}>"

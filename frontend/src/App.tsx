@@ -5,11 +5,8 @@ import { PublicOnly, RequireAuth } from '@/auth/guards';
 import { AppLayout } from '@/components/AppLayout';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
-import {
-  InterviewPlaceholderPage,
-  NotFoundPage,
-  ReportPlaceholderPage,
-} from '@/pages/placeholders';
+import { InterviewPage } from '@/pages/interview/InterviewPage';
+import { NotFoundPage, ReportPlaceholderPage } from '@/pages/placeholders';
 import { RegisterPage } from '@/pages/RegisterPage';
 import { SetupWizardPage } from '@/pages/setup/SetupWizardPage';
 
@@ -25,7 +22,7 @@ export function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/interviews/new" element={<SetupWizardPage />} />
-          <Route path="/interviews/:sessionId" element={<InterviewPlaceholderPage />} />
+          <Route path="/interviews/:sessionId" element={<InterviewPage />} />
           <Route path="/interviews/:sessionId/report" element={<ReportPlaceholderPage />} />
         </Route>
       </Route>

@@ -2,7 +2,9 @@
 
 /*
  * Design tokens (shadcn/ui naming). A light, neutral palette with one
- * restrained blue accent. Foreground/background pairs meet WCAG AA for text.
+ * restrained blue accent. The text/background pairs the UI uses compute to
+ * at least 4.5:1 (WCAG AA), from 5.3:1 (warning badge) to 17.7:1 (body text).
+ * These are calculated from the tokens, not measured by a browser audit.
  */
 :root {
   --background: oklch(0.985 0.002 247);

@@ -14,7 +14,7 @@ export interface MockResponse {
 type Handler = (request: {
   body: unknown;
   init: RequestInit;
-}) => MockResponse | Promise<MockResponse>;
+}) => MockResponse | Response | Promise<MockResponse | Response>;
 
 export interface RecordedCall {
   method: string;
@@ -51,8 +51,12 @@ export function mockApi(routes: Record<string, Handler | MockResponse | MockResp
     const route = routes[key];
     if (!route) throw new Error(`Unmocked request: ${key}`);
     let spec: MockResponse;
-    if (typeof route === 'function') spec = await route({ body, init });
-    else if (Array.isArray(route)) {
+    if (typeof route === 'function') {
+      const result = await route({ body, init });
+      // A handler may return a real Response (e.g. a streaming body).
+      if (result instanceof Response) return result;
+      spec = result;
+    } else if (Array.isArray(route)) {
       const n = counters.get(key) ?? 0;
       counters.set(key, n + 1);
       spec = route[Math.min(n, route.length - 1)] as MockResponse;

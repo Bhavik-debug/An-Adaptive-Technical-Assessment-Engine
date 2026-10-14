@@ -50,7 +50,7 @@ Those four commands are exactly what CI runs — see "Continuous integration".
 Point `DATABASE_URL`/`REDIS_URL` at `localhost:5433` / `localhost:6380` and run
 `uvicorn app.main:create_app --factory --reload` from `backend/`.
 
-### The frontend (Day 26)
+### The frontend (Days 26–27)
 
 ```bash
 cd frontend
@@ -61,9 +61,11 @@ npm run dev                   # http://localhost:5173, proxies /api to localhost
 If the API is on another port, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 The app has to be served from the API's origin, because the refresh cookie is
 `SameSite=Strict` and the API has no CORS. The Vite proxy handles this locally.
-Sign-in, the dashboard and the three-step setup wizard work. The interview and
-report screens (Days 27–28) are placeholders. See
-[`docs/frontend.md`](docs/frontend.md). **Nothing is deployed:** deployment
+Sign-in (email, or Google when `GOOGLE_CLIENT_ID` is set), the dashboard, the
+three-step setup wizard and the interview screen (Day 27) work. The report
+screen (Day 28) is a placeholder. See [`docs/frontend.md`](docs/frontend.md),
+[`docs/interview-screen.md`](docs/interview-screen.md) and
+[`docs/google-sign-in.md`](docs/google-sign-in.md). **Nothing is deployed:** deployment
 waits for the project owner's explicit approval.
 
 ---
@@ -94,6 +96,8 @@ pipeline rolls a release back on a failed `/readyz`, so these checks have to be 
 | `POST /api/auth/refresh` | Rotate the refresh cookie, return a new access token |
 | `POST /api/auth/logout` | Revoke the refresh token, clear the cookie |
 | `GET /api/auth/me` | The authenticated user |
+| `GET /api/auth/providers` | Which sign-in methods are on (Day 27): `{password, google_client_id}` |
+| `POST /api/auth/google` | "Continue with Google" (Day 27): a Google ID token, verified server-side, for the same tokens as `/login`. No silent linking to an existing account. See [`docs/google-sign-in.md`](docs/google-sign-in.md) |
 
 The report (Day 25, [`docs/reporting.md`](docs/reporting.md)): `GET
 /api/sessions/{id}/report` returns 202 while it is built, 200 when ready, and

@@ -3,6 +3,7 @@ import * as React from 'react';
 import * as authApi from '@/api/auth';
 import { ApiError, refreshAccessToken, setAccessToken, setAuthLostHandler } from '@/api/client';
 import type { User } from '@/api/types';
+import { disableGoogleAutoSelect } from '@/lib/googleIdentity';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -15,6 +16,8 @@ export interface AuthContextValue {
   restoreError: string | null;
   signIn: (credentials: authApi.Credentials) => Promise<void>;
   signUp: (credentials: authApi.Credentials) => Promise<void>;
+  /** Exchange a Google ID token for an ordinary application session. */
+  signInWithGoogle: (credential: string) => Promise<void>;
   signOut: () => Promise<void>;
   retryRestore: () => void;
 }
@@ -95,12 +98,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [finishSignIn],
   );
 
+  const signInWithGoogle = React.useCallback(
+    async (credential: string) => {
+      await authApi.googleSignIn(credential);
+      await finishSignIn();
+    },
+    [finishSignIn],
+  );
+
   const signOut = React.useCallback(async () => {
     try {
       await authApi.logout();
     } catch {
       // The local session is cleared regardless (authApi.logout's finally).
     }
+    disableGoogleAutoSelect();
     setUser(null);
     setSessionExpired(false);
     setStatus('anonymous');
@@ -120,10 +132,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       restoreError,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
       retryRestore,
     }),
-    [status, user, sessionExpired, restoreError, signIn, signUp, signOut, retryRestore],
+    [
+      status,
+      user,
+      sessionExpired,
+      restoreError,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      signOut,
+      retryRestore,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

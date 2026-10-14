@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { AuthLayout } from '@/components/AuthLayout';
 import { FormField } from '@/components/FormField';
+import { GoogleSignIn } from '@/components/GoogleSignIn';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,8 @@ export function RegisterPage() {
   const [errors, setErrors] = React.useState<FieldErrors<Field>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  // Google's exchange is in flight: the email form waits for it.
+  const [googleBusy, setGoogleBusy] = React.useState(false);
 
   function validate(): FieldErrors<Field> {
     const next: FieldErrors<Field> = {};
@@ -37,7 +40,7 @@ export function RegisterPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || googleBusy) return;
     const next = validate();
     setErrors(next);
     setFormError(null);
@@ -82,7 +85,13 @@ export function RegisterPage() {
         </>
       }
     >
-      <form noValidate onSubmit={handleSubmit} className="space-y-4">
+      <GoogleSignIn
+        mode="signup"
+        disabled={submitting}
+        onBusyChange={setGoogleBusy}
+        onSuccess={() => navigate('/dashboard', { replace: true })}
+      />
+      <form noValidate onSubmit={handleSubmit} className="mt-4 space-y-4">
         {formError && (
           <Alert variant="error" title="We could not create your account">
             {formError}
@@ -97,7 +106,7 @@ export function RegisterPage() {
               inputMode="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || googleBusy}
             />
           )}
         </FormField>
@@ -114,7 +123,7 @@ export function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || googleBusy}
             />
           )}
         </FormField>
@@ -126,11 +135,11 @@ export function RegisterPage() {
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || googleBusy}
             />
           )}
         </FormField>
-        <Button type="submit" className="w-full" loading={submitting}>
+        <Button type="submit" className="w-full" loading={submitting} disabled={googleBusy}>
           {submitting ? 'Creating account…' : 'Create account'}
         </Button>
       </form>

@@ -20,7 +20,10 @@ login (plan section 14.1: token theft, session fixation).
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import logging
+import time
 
 from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field
@@ -29,6 +32,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import Settings
 from app.deps import AppSettings, CacheClient, CurrentUser, DbSession
+from app.google_auth import (
+    MAX_CREDENTIAL_CHARS,
+    GoogleEmailUnverified,
+    GoogleIdentity,
+    GoogleTokenInvalid,
+    GoogleUnavailable,
+    verify_google_credential,
+)
 from app.models import User
 from app.security import (
     MAX_PASSWORD_BYTES,
@@ -43,6 +54,7 @@ from app.security import (
     verify_password,
 )
 from app.token_store import (
+    claim_google_token,
     clear_login_failures,
     consume_refresh_token,
     is_locked_out,
@@ -50,6 +62,8 @@ from app.token_store import (
     remember_refresh_token,
     revoke_all_refresh_tokens,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -74,6 +88,25 @@ class LoginRequest(BaseModel):
     # No min_length here on purpose: rejecting a short password at login would
     # tell an attacker their guess was too short to be anyone's real password.
     password: str = Field(max_length=MAX_PASSWORD_BYTES)
+
+
+class GoogleSignInRequest(BaseModel):
+    """``POST /api/auth/google``: the ``credential`` Google Identity Services
+    hands the page - an ID token, verified server-side before anything is
+    read from it."""
+
+    credential: str = Field(min_length=1, max_length=MAX_CREDENTIAL_CHARS)
+
+
+class AuthProviders(BaseModel):
+    """``GET /api/auth/providers``: which sign-in methods are switched on.
+
+    ``google_client_id`` is public (it is the ``aud`` of every Google ID token,
+    and the browser needs it to render Google's button). ``None`` means Google
+    sign-in is not configured on this server."""
+
+    password: bool = True
+    google_client_id: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -147,6 +180,58 @@ async def _issue_tokens(
     )
 
 
+def _google_error(status_code: int, code: str, message: str) -> HTTPException:
+    # The `{code, message}` detail shape the SPA already understands.
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+def _google_rejected() -> HTTPException:
+    # One answer for every kind of invalid credential: the endpoint is not an
+    # oracle for which check failed.
+    return _google_error(
+        status.HTTP_401_UNAUTHORIZED, "google_token_invalid", "Google sign-in failed."
+    )
+
+
+async def _google_user(db: DbSession, identity: GoogleIdentity) -> tuple[User, bool]:
+    """The account a verified Google identity signs in to, creating it if new.
+
+    Returns ``(user, created)``. Account-linking policy (docs/frontend.md):
+
+    * an account already holding this Google ``sub`` -> that account;
+    * otherwise, if the email is free -> a new account with ``google_sub`` set
+      and **no password** (none is invented);
+    * otherwise the email belongs to another account (a password account, or
+      one tied to a different Google account) -> 409. A matching email alone is
+      never treated as proof of owning an account: its owner signs in with the
+      method it already has. There is no linking flow yet.
+    """
+    user = await db.scalar(select(User).where(User.google_sub == identity.subject))
+    if user is not None:
+        return user, False
+
+    user = User(email=identity.email, google_sub=identity.subject, password_hash=None)
+    db.add(user)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        # uq_users_google_sub: a concurrent first sign-in with this same Google
+        # account won the race - sign in to *its* row. uq_users_email: the email
+        # is another account's. The constraint decides, as in /register.
+        winner = await db.scalar(select(User).where(User.google_sub == identity.subject))
+        if winner is not None:
+            return winner, False
+        raise _google_error(
+            status.HTTP_409_CONFLICT,
+            "account_exists",
+            "An account with this email already exists. Sign in the way you created it "
+            "(usually with your email and password).",
+        ) from exc
+    await db.refresh(user)
+    return user, True
+
+
 def _invalid_credentials() -> HTTPException:
     # One message for "no such account" and for "wrong password". Distinguishing
     # them turns the login form into an account-enumeration oracle.
@@ -209,10 +294,14 @@ async def login(
 
     # Verify against a decoy when the account does not exist, so both branches
     # take the same ~50 ms and the response time leaks nothing.
-    stored_hash = user.password_hash if user else dummy_hash()
-    password_ok = verify_password(stored_hash, payload.password)
+    # A Google-only account (no password_hash) is treated exactly like a
+    # missing one: same decoy, same timing, same answer - and the explicit
+    # `has_password` check means even the decoy's own plaintext cannot log in.
+    has_password = user is not None and user.password_hash is not None
+    stored_hash = user.password_hash if user is not None and user.password_hash else dummy_hash()
+    password_ok = verify_password(stored_hash, payload.password) and has_password
 
-    if user is None or not password_ok:
+    if user is None or user.password_hash is None or not password_ok:
         await register_login_failure(
             redis,
             email=payload.email,
@@ -229,6 +318,75 @@ async def login(
         await db.commit()
 
     await clear_login_failures(redis, email=payload.email)
+    return await _issue_tokens(user=user, response=response, settings=settings, redis=redis)
+
+
+@router.get("/providers", summary="Which sign-in methods this server offers")
+async def providers(settings: AppSettings) -> AuthProviders:
+    return AuthProviders(google_client_id=settings.google_client_id)
+
+
+@router.post(
+    "/google",
+    summary="Sign in, or create an account, with a Google ID token",
+    responses={
+        201: {"model": TokenResponse, "description": "A new account was created"},
+        401: {"description": "Not a valid, unused Google ID token for this app"},
+        403: {"description": "Google has not verified the account's email"},
+        409: {"description": "The email belongs to an account with another sign-in method"},
+        503: {"description": "Google sign-in is not configured, or Google is unreachable"},
+    },
+)
+async def google_sign_in(
+    payload: GoogleSignInRequest,
+    response: Response,
+    db: DbSession,
+    settings: AppSettings,
+    redis: CacheClient,
+) -> TokenResponse:
+    if not settings.google_client_id:
+        raise _google_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "google_not_configured",
+            "Google sign-in is not available on this server.",
+        )
+    try:
+        # google-auth is synchronous: it may fetch Google's signing keys.
+        identity = await asyncio.to_thread(
+            verify_google_credential, payload.credential, client_id=settings.google_client_id
+        )
+    except GoogleUnavailable as exc:
+        log.warning("google sign-in: signing keys unavailable")
+        raise _google_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "google_unavailable",
+            "Google sign-in is temporarily unavailable. Please try again.",
+        ) from exc
+    except GoogleEmailUnverified as exc:
+        raise _google_error(
+            status.HTTP_403_FORBIDDEN,
+            "google_email_unverified",
+            "Google has not verified the email address on this account.",
+        ) from exc
+    except GoogleTokenInvalid as exc:
+        # The reason is library text about the check that failed - never the
+        # token or its claims.
+        log.info("google sign-in: credential rejected", extra={"reason": str(exc)[:200]})
+        raise _google_rejected() from exc
+
+    # Single-use: one credential cannot be exchanged twice. A token without a
+    # jti cannot be tracked, so it is refused rather than left replayable.
+    if identity.token_id is None or not await claim_google_token(
+        redis,
+        token_id=identity.token_id,
+        ttl=dt.timedelta(seconds=max(identity.expires_at - int(time.time()), 1)),
+    ):
+        log.info("google sign-in: credential rejected", extra={"reason": "replayed or no jti"})
+        raise _google_rejected()
+
+    user, created = await _google_user(db, identity)
+    if created:
+        response.status_code = status.HTTP_201_CREATED
     return await _issue_tokens(user=user, response=response, settings=settings, redis=redis)
 
 

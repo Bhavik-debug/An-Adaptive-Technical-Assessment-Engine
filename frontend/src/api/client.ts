@@ -239,11 +239,8 @@ async function parseBody<T>(res: Response): Promise<T> {
   return undefined as T;
 }
 
-/** Like `apiRequest`, but also returns the status and headers (e.g. 202 vs 200). */
-export async function apiRequestFull<T>(
-  path: string,
-  options: RequestOptions = {},
-): Promise<ApiResponse<T>> {
+/** Send, and recover from one expired-access-token 401 with a single refresh. */
+async function sendWithAuth(path: string, options: RequestOptions): Promise<Response> {
   const useAuth = options.auth ?? true;
   const tokenUsed = useAuth ? accessToken : null;
   let res = await send(path, options, tokenUsed);
@@ -254,7 +251,7 @@ export async function apiRequestFull<T>(
       accessToken && accessToken !== tokenUsed ? accessToken : await refreshAccessToken();
     if (!fresh) {
       authLostHandler?.();
-      throw await errorFromResponse(res);
+      return res;
     }
     res = await send(path, options, fresh);
     if (res.status === 401) {
@@ -262,9 +259,36 @@ export async function apiRequestFull<T>(
       authLostHandler?.();
     }
   }
+  return res;
+}
 
+/** Like `apiRequest`, but also returns the status and headers (e.g. 202 vs 200). */
+export async function apiRequestFull<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResponse<T>> {
+  const res = await sendWithAuth(path, options);
   if (!res.ok) throw await errorFromResponse(res);
   return { data: await parseBody<T>(res), status: res.status, headers: res.headers };
+}
+
+/**
+ * Open a streaming response (Server-Sent Events) with the same bearer-token and
+ * refresh handling as every other request. `EventSource` cannot send an
+ * Authorization header, which is why the stream is read with `fetch`. Resolves
+ * to the open `Response` (the caller reads `body`); rejects with an ApiError
+ * for a non-2xx status, or a network ApiError.
+ */
+export async function apiStream(
+  path: string,
+  options: Omit<RequestOptions, 'json' | 'body' | 'method'> = {},
+): Promise<Response> {
+  const res = await sendWithAuth(path, {
+    ...options,
+    headers: { Accept: 'text/event-stream', ...options.headers },
+  });
+  if (!res.ok) throw await errorFromResponse(res);
+  return res;
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {

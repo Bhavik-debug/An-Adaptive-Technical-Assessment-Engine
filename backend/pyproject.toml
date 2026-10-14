@@ -37,6 +37,10 @@ dependencies = [
     # (app/ingestion/files.py). The AGPL obligations for a *public* network
     # service must be decided before the Day-30 deploy - see docs/ingestion.md.
     "pymupdf>=1.24,<1.29",
+    # "Continue with Google" (Day 27). Google's official library verifies the
+    # ID token's signature, issuer, audience and expiry (app/google_auth.py).
+    # The [requests] extra is its HTTP transport for fetching Google's keys.
+    "google-auth[requests]>=2.40,<3",
 ]
 
 [project.optional-dependencies]

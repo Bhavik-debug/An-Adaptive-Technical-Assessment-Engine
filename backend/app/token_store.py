@@ -29,6 +29,8 @@ from redis.asyncio import Redis
 _JTI_KEY = "refresh:{jti}"
 _USER_KEY = "refresh_user:{user_id}"
 _LOCKOUT_KEY = "login_fail:{email}"
+#   google_jti:{jti}     -> "1"          a Google ID token already exchanged (Day 27)
+_GOOGLE_JTI_KEY = "google_jti:{jti}"
 
 
 def _jti_key(jti: uuid.UUID) -> str:
@@ -119,3 +121,17 @@ async def is_locked_out(redis: Redis, *, email: str, lockout_after: int) -> bool
 async def clear_login_failures(redis: Redis, *, email: str) -> None:
     """A successful login wipes the slate."""
     await redis.delete(_lockout_key(email))
+
+
+async def claim_google_token(redis: Redis, *, token_id: str, ttl: dt.timedelta) -> bool:
+    """Spend one Google ID token. False means it was already exchanged.
+
+    A Google credential is valid for about an hour; without this, one captured
+    from a log, a proxy or a browser extension could be replayed to sign in
+    again until it expired. ``SET NX`` is the check and the claim in one
+    operation, for the same reason as :func:`consume_refresh_token`. The entry
+    lives until the token itself would have expired, and no longer.
+    """
+    seconds = max(int(ttl.total_seconds()), 1)
+    claimed = await redis.set(_GOOGLE_JTI_KEY.format(jti=token_id), "1", ex=seconds, nx=True)
+    return bool(claimed)

@@ -366,6 +366,15 @@ endpoints the dashboard and wizard needed (`GET /api/sessions`,
 `GET /api/setup-options`). See `docs/frontend.md`. The interview and report
 screens (Days 27–28) are placeholders.
 
+**Day 27 delivered** (local only): the interview screen at `/interviews/:id`
+(snapshot + SSE, idempotent answer submission, honest progress) and "Continue
+with Google" (Google ID token verified server-side with `google-auth`; no
+silent account linking). New backend surface: `GET /api/sessions/{id}`,
+`GET /api/auth/providers`, `POST /api/auth/google`, migration `0008`. See
+`docs/interview-screen.md` and `docs/google-sign-in.md`. The report screen
+(Day 28) is still a placeholder. Live Google sign-in and real-browser checks
+were **not** performed (details in the Day 27 entry).
+
 - [ ] Public HTTPS URL, working signup, interview, report  *(on hold — owner approval required)*
 - [ ] Demo account with seeded data linked from the landing page
 - [ ] Restore-from-backup drill performed and documented in `docs/runbook.md`
@@ -4234,14 +4243,32 @@ stated in its checkbox above. Phase 4 is unchanged (acceptance-pending).
 
 **Evidence (all local):**
 
-- Frontend: `npm test` → **53 passed** (5 files). `tsc -b`, ESLint (with
-  jsx-a11y and `no-console`), Prettier and `vite build` are all clean.
+- Frontend, final re-run: `npm test` → **53 passed, 0 failed** (5 files).
+  `typecheck`, `lint` (jsx-a11y, `no-console`), `format:check` and `build`
+  all exit 0. *Correction:* the first final `format:check` failed on
+  `frontend/README.md`, which was written after the earlier Prettier run.
+  It was reformatted (bullet markers only) and then passed.
   `npm audit` → 0 vulnerabilities, after moving to react-router 7.18 (fixes an
   open-redirect advisory in v6) and vitest 4.1.11.
 - Backend: `test_dashboard_api.py` → **9 passed** against real Postgres and
   Redis. `ruff check`, `ruff format --check` and `mypy --strict app` (139
-  files) are clean. The full suite (excluding `tests/smoke`) is recorded
-  below.
+  files) are clean.
+- **Backend full suite, final run on a quiet machine:**
+  `pytest --ignore=tests/smoke` → **3067 passed, 0 failed, 0 skipped, 22
+  deselected**, exit 0, 11 min 57 s; the JUnit XML agrees. That is Day 25's
+  3058 plus the 9 new tests. The 22 deselected are the marker filter; Day 25
+  shows 23 because `tests/smoke` was collected and then deselected there.
+- **A pre-existing intermittent failure, recorded rather than fixed:**
+  `test_session_stream.py::test_live_client_disconnect_releases_the_server`
+  (asserts no connection is `idle in transaction`). It failed in 2 of the 3
+  Day-26 full runs whose outcome was captured: the first overlapped with the
+  smoke-test setup, the second was quiet. It passed in the final run and on
+  its own. A diagnostic against the **unchanged Day-25 code** (`dffa584`, in a
+  throwaway git worktree, since removed) reproduced the condition in 1 of 3
+  attempts. One connection stayed `idle in transaction` for all 2000 samples
+  (about 10 s), with last statement `;`, which looks like a pool liveness
+  ping. Day 26 does not touch the stream, the worker or the engine/pool. The
+  root cause is not established; it needs its own investigation.
 - Live contract smoke (scratch script, not committed): the real API on a
   throwaway DB with the **offline scripted stub** (no NVIDIA calls), driven
   through the Vite proxy. **22/22 checks passed**: cookie flags, refresh
@@ -4256,5 +4283,124 @@ stated in its checkbox above. Phase 4 is unchanged (acceptance-pending).
   a real browser. The browser automation extension was not connected. This is
   on the owner's checklist.
 
-**Not deployed, committed or pushed.** Deployment is on hold pending the
-owner's approval (see Phase 6).
+- **Accessibility evidence is limited to:** jsx-a11y lint; Testing Library
+  role/label/focus assertions; and a numerical contrast check of the theme
+  tokens (all 13 text pairs ≥ 4.5:1, minimum 5.33:1). No axe, real-browser,
+  responsive, keyboard-only or screen-reader check has been performed.
+- **A mistake of mine, found in review.** The smoke-test API was started with
+  a stripped environment (`env -i`) that lacked `SystemDrive`. Windows wrote
+  four shell-cache `.db` files into a literal `backend/%SystemDrive%/` folder.
+  They were included in the owner's commit `9cf1d33`. They contain Windows
+  icon/version caches, not project data or secrets. They have been deleted
+  from the working tree. The deletion is **uncommitted**, for the owner to
+  commit.
+
+**Not deployed or published.** The Day-26 agent made no commit or push; the
+owner committed and pushed `9cf1d33` themselves. Deployment is on hold
+pending the owner's approval (see Phase 6).
+
+#### Day 26 closure note (recorded on Day 27)
+
+Verified at the start of Day 27: branch `main`, `HEAD` = `origin/main` =
+`9cf1d33` (pushed by the owner). The four accidental
+`backend/%SystemDrive%/…/Caches/*.db` files from that commit are still
+**deleted in the working tree and uncommitted**. They remain in the history of
+the pushed commit; a later deletion commit does not remove them from history,
+and no history rewrite was done. The Day-26 doc edits (this file,
+`docs/frontend.md`, `frontend/README.md`, the `index.css` comment) were
+also still uncommitted, and were preserved. The real-browser, responsive and
+keyboard checks listed for Day 26 were still not performed: the browser
+extension was again not connected on Day 27.
+
+### Day 27 — the interview screen, and "Continue with Google"
+
+**Audit findings that shaped the day:**
+
+- No Google sign-in code existed. `users.password_hash` was `NOT NULL`, so a
+  Google-only account needed a schema change rather than an invented password.
+- There was no way to fetch one session's current question after a page
+  refresh: `/start` returns 409 once the first answer is in. Replaying the
+  whole SSE stream from `-1` would have worked, but only by putting the full
+  history on the client.
+- The SSE stream is a view of the durable event log: `id` = `seq`, and
+  `Last-Event-ID` gives exact replay. `EventSource` cannot send the bearer
+  token, so the client reads the stream with `fetch`.
+- Answer submission is idempotent on `turn_id` with **byte-identical** text,
+  so a timed-out request may be resent only unchanged.
+- The backend's time budget uses the asked items' *estimated* durations, not
+  wall-clock time, so the screen shows **no timer**. There is no total question
+  count either, because the stopping rule decides the length.
+
+**What was built:**
+
+| Piece | Where |
+|---|---|
+| `GET /api/sessions/{id}`: a read-only, owner-only snapshot (state, seq, current question, counts, current turn id), with no grades, θ or selection internals | `backend/app/api/sessions.py` |
+| `POST /api/auth/google`: Google ID token verified with google-auth (signature, issuer, audience = `GOOGLE_CLIENT_ID`, expiry, `email_verified` exactly true), single-use by `jti` in Redis, then the same `_issue_tokens` as `/login`. `GET /api/auth/providers`. 409 rather than silent linking for an existing email. | `backend/app/google_auth.py`, `app/api/auth.py`, `app/token_store.py`, `app/config.py` |
+| Migration `0008`: `users.google_sub` (unique), nullable `password_hash`, CHECK that every account has a credential. Downgrade refuses while Google-only accounts exist. A Google-only account cannot password-login, even with the timing decoy's plaintext. | `backend/migrations/versions/0008_google_sign_in.py`, `app/models/user.py` |
+| The interview screen: snapshot, then the stream from its seq; strict seq order (replays ignored, a gap re-reads the snapshot); reconnect from the last applied seq with backoff; stream aborted on unmount and sign-out; per-question `turn_id`; an "outcome unknown" state that freezes the text and offers only an identical resend; no local advancing; scores never shown | `frontend/src/pages/interview/`, `src/api/stream.ts`, `src/lib/sse.ts`, `src/api/client.ts` (`apiStream`) |
+| Google's own button, shown only when the server reports a client id; blocked-script fallback; busy, error and redirect-guard handling | `frontend/src/components/GoogleSignIn.tsx`, `src/lib/googleIdentity.ts`, Login and Register pages |
+
+New dependency: `google-auth[requests]>=2.40,<3` (2.62.0 installed; it brings
+`cryptography` and `pyasn1-modules`). No frontend dependency was added.
+
+**A defect found and fixed during the day.** google-auth's `MalformedError`
+quotes the whole token in its message ("Wrong number of segments in token:
+b'eyJ…'"), and the first version logged `str(exc)`. A truncated real token
+still carries the user's email. The reason is now scrubbed of the credential
+and each of its segments (`app/google_auth.py::_scrubbed`), with unit and
+integration tests. The live log showed `b'<credential>'`.
+
+**Evidence (all local, all executed):**
+
+| Check | Result |
+|---|---|
+| Backend full suite `pytest --ignore=tests/smoke` (quiet machine) | **3134 passed, 0 failed, 0 skipped, 22 deselected**, exit 0, 5 min 22 s; the JUnit XML agrees (3134 tests, 0 failures, 0 errors, 0 skipped). That is Day 26's 3067 plus 67 new. |
+| Backend `ruff check`, `ruff format --check`, `mypy --strict app` (140 files) | clean |
+| New backend tests (67) | `tests/unit/test_google_auth.py` (24), `tests/integration/test_google_auth_api.py` (32), `test_migration_0008.py` (4), `test_session_detail_api.py` (7) |
+| Frontend `npm test` | **96 passed, 0 failed** (9 files; 53 → 96) |
+| Frontend `typecheck`, `lint`, `format:check`, `build` | all exit 0 |
+| `npm audit` | 0 vulnerabilities |
+| Python dependency audit | **not run**: none is configured for the project (CI runs gitleaks, not pip-audit), and none was installed ad hoc |
+| Live contract smoke (scratch script, not committed): a throwaway DB at `0008` with 60 bank items, the real API on :8011 with the **offline scripted model**, driven through the Vite dev proxy on :5173 | **42/42 checks passed**. Covered: SPA and deep link served; providers; fake Google credential → 401 (proving the real fetch of Google's signing keys worked: a failed fetch is 503); register; cookie flags; me; refresh rotation; login; dashboard; setup options; resume upload → parsed → PATCH profile; JD → extracted (the scripted model mapped no topics, so topics were given explicitly); create; start (idempotent); snapshot (no internals); unknown 404; stream opens via the proxy; 3 answers, each 202 then an identical resend = 200 replay; follow-ups and the next bank question via the stream; snapshot agreeing after each; stream ids strictly increasing; reconnect from the snapshot seq replaying the same ids; another user 404 on snapshot and stream; logout; refresh 401. |
+| Server log scan after the smoke | no answer text, resume or JD text, tokens, cookies, `Bearer`, passwords or emails; no errors or tracebacks |
+| Clean-up | API and Vite processes stopped (ports free); throwaway databases dropped; Redis DB 12 flushed; the owner's `interviewer` DB untouched (still at `0007`, same user count) |
+
+**The intermittent test** (`test_live_client_disconnect_releases_the_server`):
+it passed in the full run above and 5/5 times on its own. A new diagnostic
+(scratch, not committed; its own throwaway DB) opened and abandoned 120
+streams against the unchanged stream code and sampled `pg_stat_activity`
+after every 3. In 7 of 40 samples a connection was `idle in transaction`,
+and **every one was a background worker's job-claim transaction** (the
+grading, follow-up and resume claim `UPDATE … RETURNING`, or a bare
+`BEGIN`). None was from the stream, and **none was still there 1 s
+later**. So the test's one-shot snapshot of *all* connections in the database
+races the in-process workers, which poll every 0.1 s. That is a test-precision
+problem, not a leak found in the stream. Day 26's observation (one connection
+`idle in transaction` on `;` for ~10 s) was **not reproduced and remains
+unexplained**. One hypothesis, unconfirmed: SQLAlchemy's asyncpg pre-ping runs
+`;` in a transaction and rolls it back in a `finally` that a cancellation
+could interrupt. Day 27 did not change the stream, the workers or the pool.
+**Proposed, not applied:** make the assertion target what it means, e.g. no
+connection `idle in transaction` for longer than ~1 s, sampled over a short
+window. That would still catch a real leak.
+
+**Not done, stated plainly:**
+
+- **Live Google sign-in was not verified.** No Google OAuth client exists for
+  this project. Everything Google-related is tested with Google's real library
+  against locally generated keys. The manual steps are in
+  `docs/google-sign-in.md` §4.
+- **No real-browser, responsive, keyboard-only, axe or screen-reader check**
+  of anything (the Chrome extension was not connected). All UI evidence is
+  jsdom (Testing Library) and the API-level smoke.
+- The owner's dev DB was **not** migrated: run `alembic upgrade head` (→
+  `0008`) before running this code against it. The Docker image also needs
+  `docker compose up --build` (google-auth is new, and the existing `api`
+  container was already crash-looping on a stale image that lacks
+  `pgvector`).
+- Day 28 (the report screen) was not started; its route is a labelled
+  placeholder.
+
+**Not deployed, committed or pushed.** Deployment remains on hold pending the
+owner's approval. Phase 4 is unchanged (acceptance-pending).
