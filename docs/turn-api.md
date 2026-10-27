@@ -269,7 +269,14 @@ requires a grade, so a failed turn cannot be skipped by accident.
 **Recovery:** `app.interview.grading.requeue_failed_turn(maker, session_id=…,
 turn_id=…)` is an operator action, for use once the cause (an outage, a bad key)
 is fixed. It resets the turn to `pending` with a fresh attempt budget. A later
-`ANSWER_GRADED` is legal after a `GRADING_FAILED`. There is no HTTP route for it.
+`ANSWER_GRADED` is legal after a `GRADING_FAILED`. There is no HTTP route for it;
+since Day 29 it can be run as `backend/scripts/requeue_failed.py` (`--list`, then
+`turn <session_id> <turn_id>`), which prints ids and error codes only.
+
+`retries_exhausted` in `GRADING_FAILED` says *why* grading gave up (transient
+errors used up, `true`, vs a permanent error, `false`). The event is always
+final: retries emit nothing. (Until Day 29 the interview screen read `false` as
+"still retrying" and spun forever.)
 
 Diagnostics stored: the turn's `grading_status`, `grading_attempts`,
 `grading_error`, `next_attempt_at` and `lease_expires_at`, plus the event.

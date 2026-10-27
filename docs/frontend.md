@@ -8,8 +8,8 @@ see "Local-only status" at the end.
 
 Day 27 additions have their own documents:
 [`google-sign-in.md`](google-sign-in.md) and
-[`interview-screen.md`](interview-screen.md). Day 28 (the report screen) is
-**not** implemented; its route is a clearly labelled placeholder.
+[`interview-screen.md`](interview-screen.md). Day 28's report screen:
+[`report-screen.md`](report-screen.md).
 
 Sections below describe Day 26 unless they say otherwise; Day 26's results are
 kept as recorded.
@@ -29,7 +29,9 @@ kept as recorded.
 | Lint/format | ESLint 9 (typescript-eslint, react-hooks, **jsx-a11y**), Prettier 3 | `no-console` is an error: tokens and resume data must never reach the console |
 
 No chart library was added. The dashboard's skill overview is plain markup
-(see §6); Recharts is planned for Day 28's report and live skill graph.
+(see §6). Day 28's report screen did not need one either: its bars are the
+same plain-markup `SkillRow` (see `report-screen.md` §3 for the live skill
+graph, which was not built).
 
 ## 2. Running it locally
 
@@ -58,7 +60,7 @@ npm run dev                # http://localhost:5173
 | Variable | Exposed to browser? | Default | Purpose |
 |---|---|---|---|
 | `VITE_API_BASE_URL` | **yes** (compiled into the bundle) | empty | API origin. Empty = same origin via the proxy. Must never hold a secret. |
-| `API_PROXY_TARGET` | no (dev/preview server only) | `http://localhost:8000` | Where the Vite proxy forwards `/api` |
+| `API_PROXY_TARGET` | no (dev/preview server only) | `http://localhost:<API_HOST_PORT>`: the port in the repo-root `.env` that `docker compose` publishes the API on, else `8000` | Where the Vite proxy forwards `/api`. Only `API_HOST_PORT` is read from the root `.env`. |
 
 There are no secrets in the frontend and none may be added: every `VITE_*`
 value is public.
@@ -73,7 +75,7 @@ frontend/src/
 │   └── ui/         shadcn-style primitives: button, input, textarea, select, label, card, badge, alert, skeleton
 ├── hooks/          useApiData (abortable load), usePolling (job status), useSetupOptions
 ├── lib/            format, validation, redirect, session, setup helpers; sse, googleIdentity (Day 27)
-├── pages/          LoginPage, RegisterPage, dashboard/, setup/, interview/ (Day 27), placeholders
+├── pages/          LoginPage, RegisterPage, dashboard/, setup/, interview/ (Day 27), report/ (Day 28), placeholders (404 only)
 └── test/           Vitest setup and the fetch-routing mock
 ```
 
@@ -84,7 +86,7 @@ frontend/src/
 | `/dashboard` | signed-in | welcome, start button, past interviews, skill overview |
 | `/interviews/new` | signed-in | the three-step setup wizard |
 | `/interviews/:id` | signed-in | the interview screen (Day 27; was a placeholder on Day 26) |
-| `/interviews/:id/report` | signed-in | **placeholder** for Day 28's report screen |
+| `/interviews/:id/report` | signed-in | the report screen (Day 28; was a placeholder until then), see `report-screen.md` |
 | `*` | — | not found |
 
 A signed-out visit to a protected route goes to `/login` and, after signing in,
@@ -293,8 +295,10 @@ failure**, not caused by Day 26 (see §10).
 
 ## 10. Known limitations and deferred work
 
-* **Day 28 not built:** the report screen is a placeholder. (On Day 26 the
-  interview screen was too; Day 27 built it — see `interview-screen.md`.)
+* **Day 28 built the report screen** (`report-screen.md`). Not built from
+  the plan's Day 28 row: an overall band, a 2-week study plan, grader evidence
+  on question cards, and the live skill graph. None of them has a backend
+  field to show (`report-screen.md` §3).
 * **Same-origin only.** Cross-origin hosting would need a backend decision on
   CORS and `SameSite=None; Secure` (already noted in `auth.py`).
 * **Wizard state is in memory.** A page reload loses the step and the

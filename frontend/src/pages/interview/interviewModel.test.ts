@@ -8,6 +8,7 @@ import {
   applyEvent,
   fromSnapshot,
   questionLabel,
+  snapshotIsCurrent,
   withTurnStatus,
   type InterviewView,
 } from './interviewModel';
@@ -106,34 +107,50 @@ describe('applyEvent', () => {
     expect(questionLabel(after)).toBe('Follow-up on question 1');
   });
 
-  it('distinguishes a retried review from one given up on', () => {
+  it('never lets a late snapshot roll back events the stream already applied', () => {
+    // A re-read races the restarted stream: the snapshot is read at seq 3
+    // (GRADING), the stream then applies seq 4-5 (graded, next question).
+    const stale = fromSnapshot(detail({ state: 'GRADING', seq: 3, current_turn_id: 't1' }));
+    const live = run(stale, [
+      ev({ type: 'grade_ready', seq: 4, state: 'SELECTING', turn_id: 't1', score: 0.5 }),
+      ev({
+        type: 'next_question',
+        seq: 5,
+        state: 'ASKING',
+        question_id: 'q2',
+        is_follow_up: false,
+        text: 'Next?',
+      }),
+    ]);
+    expect(live.state).toBe('ASKING');
+    expect(snapshotIsCurrent(live, stale)).toBe(false);
+    // Same or newer snapshots, a first load, or another session: accepted.
+    expect(snapshotIsCurrent(live, { ...stale, seq: 5 })).toBe(true);
+    expect(snapshotIsCurrent(live, { ...stale, seq: 9 })).toBe(true);
+    expect(snapshotIsCurrent(null, stale)).toBe(true);
+    expect(snapshotIsCurrent(live, { ...stale, sessionId: 'other' })).toBe(true);
+  });
+
+  it('treats every grading_failed as final, whatever retries_exhausted says', () => {
+    // backend/app/interview/grading.py: GRADING_FAILED is appended only by
+    // `_fail`; `retries_exhausted: false` means a permanent error, not "retrying".
     const grading = run(fromSnapshot(detail()), [
       ev({ type: 'grading_started', seq: 3, state: 'GRADING', turn_id: 't1' }),
     ]);
-    const retrying = applyEvent(
-      grading,
-      ev({
-        type: 'grading_failed',
-        seq: 4,
-        state: 'GRADING',
-        turn_id: 't1',
-        error_code: 'x',
-        retries_exhausted: false,
-      }),
-    ).view;
-    expect(retrying.review).toBe('retrying');
-    const failed = applyEvent(
-      retrying,
-      ev({
-        type: 'grading_failed',
-        seq: 5,
-        state: 'GRADING',
-        turn_id: 't1',
-        error_code: 'x',
-        retries_exhausted: true,
-      }),
-    ).view;
-    expect(failed.review).toBe('failed');
+    for (const retries_exhausted of [false, true]) {
+      const after = applyEvent(
+        grading,
+        ev({
+          type: 'grading_failed',
+          seq: 4,
+          state: 'GRADING',
+          turn_id: 't1',
+          error_code: 'x',
+          retries_exhausted,
+        }),
+      ).view;
+      expect(after.review).toBe('failed');
+    }
   });
 
   it('clears the question when the interview ends', () => {

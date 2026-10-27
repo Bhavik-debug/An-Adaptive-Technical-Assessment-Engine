@@ -10,9 +10,15 @@ import { defineConfig, loadEnv } from 'vite';
 // refresh cookie with SameSite=Strict and Path=/api/auth, and has no CORS
 // middleware. API_PROXY_TARGET has no VITE_ prefix, so it never reaches the
 // browser bundle.
+//
+// Without API_PROXY_TARGET the proxy follows API_HOST_PORT from the repo-root
+// .env (the port docker compose publishes the API on), so the two cannot
+// drift apart. Only that one key is read from the root file.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const target = env.API_PROXY_TARGET || 'http://localhost:8000';
+  const rootPort = loadEnv(mode, path.resolve(__dirname, '..'), 'API_HOST_PORT').API_HOST_PORT;
+  const apiPort = /^\d+$/.test(rootPort ?? '') ? rootPort : '8000';
+  const target = env.API_PROXY_TARGET || `http://localhost:${apiPort}`;
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

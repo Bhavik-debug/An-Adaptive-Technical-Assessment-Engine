@@ -59,6 +59,33 @@ def test_short_secret_key_is_rejected(env):
         get_settings()
 
 
+PLACEHOLDER_SECRET = "dev-only-secret-change-me-0123456789abcdef"  # the .env.example value
+
+
+@pytest.mark.parametrize("app_env", ["staging", "prod"])
+def test_deployed_envs_refuse_the_placeholder_secret(env, app_env):
+    env({"APP_ENV": app_env, "SECRET_KEY": PLACEHOLDER_SECRET})
+    with pytest.raises(ConfigError, match="SECRET_KEY is the documented placeholder"):
+        get_settings()
+
+
+@pytest.mark.parametrize("app_env", ["staging", "prod"])
+def test_deployed_envs_refuse_the_stub_provider(env, app_env):
+    env({"APP_ENV": app_env, "LLM_PROVIDER_ORDER": "nvidia,stub"})
+    with pytest.raises(ConfigError, match="may not include 'stub'"):
+        get_settings()
+
+
+def test_local_and_ci_still_accept_both(env):
+    env({"APP_ENV": "local", "SECRET_KEY": PLACEHOLDER_SECRET, "LLM_PROVIDER_ORDER": "stub"})
+    assert get_settings().llm_providers == ("stub",)
+
+
+def test_prod_with_real_values_loads(env):
+    env({"APP_ENV": "prod", "SECRET_KEY": "r" * 48})
+    assert get_settings().is_prod
+
+
 def test_unknown_app_env_is_rejected(env):
     env({"APP_ENV": "banana"})
     with pytest.raises(ConfigError, match="APP_ENV"):

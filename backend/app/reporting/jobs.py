@@ -201,9 +201,24 @@ async def process_report(
 ) -> str:
     try:
         stats = await build_stats(maker, job.session_id)
-    except (ReportNotReady, EventLogCorrupted) as exc:
-        code = "not_reporting" if isinstance(exc, ReportNotReady) else "event_log_corrupted"
-        log.error("report statistics unavailable", extra={"report.error_code": code})
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - recorded as a failed report, never swallowed
+        # Anything else (a bug, a malformed row) would otherwise escape to the
+        # worker loop and leave the row `processing`; the claim re-takes it
+        # every lease, forever, and GET .../report answers 202 indefinitely.
+        # Failing it is bounded and visible, and an operator can re-queue it
+        # (scripts/requeue_failed.py) once the cause is fixed.
+        if isinstance(exc, ReportNotReady):
+            code = "not_reporting"
+        elif isinstance(exc, EventLogCorrupted):
+            code = "event_log_corrupted"
+        else:
+            code = "internal_error"
+        log.error(
+            "report statistics unavailable",
+            extra={"report.error_code": code, "report.exception": type(exc).__name__},
+        )
         ok = await _set(maker, job, {"status": REPORT_FAILED, "error": code})
         return ReportOutcome.FAILED if ok else ReportOutcome.STALE
 

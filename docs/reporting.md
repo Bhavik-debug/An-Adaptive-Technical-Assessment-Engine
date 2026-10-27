@@ -124,7 +124,7 @@ works like this:
 | transient error, attempts used up | completes with the **template**, `narrative_error: retry_exhausted` |
 | permanent error, schema failure, invented number | completes with the **template**, `narrative_error: <code>` |
 | attempts used up by crashes (lease re-claims) | completes with the template, and **the model is not called again** |
-| stats cannot be built (not in REPORTING, corrupted log) | report `failed` + `error` code; **the session stays in REPORTING** (no false completion); `requeue_failed_report()` for an operator |
+| stats cannot be built (not in REPORTING, corrupted log, **or any unexpected error**, `internal_error`, since Day 29) | report `failed` + `error` code; **the session stays in REPORTING** (no false completion); an operator re-queues it with `backend/scripts/requeue_failed.py report <session_id>`. Before Day 29 an unexpected error left the row `processing`, re-claimed every lease, forever (202 indefinitely). |
 
 The **template** (`template_narrative`) is the plan's own cut-line: "report
 narrative becomes a template instead of an LLM call". It is built in code from
@@ -230,7 +230,15 @@ The script exits 0 only if 10 primary questions were asked, the report is
 
 ---
 
-## 8. Tests
+## 8. The report screen (Day 28)
+
+The candidate-facing view of this contract is `/interviews/:id/report`; which
+fields it shows, which it hides, and the plan items it cannot meet from this
+contract are in [report-screen.md](report-screen.md). A route test now pins the
+failed case: `500` with the report body, `status: "failed"`, no stats
+(`test_report_route_failed_is_500_with_the_typed_body`).
+
+## 9. Tests
 
 ```bash
 cd backend

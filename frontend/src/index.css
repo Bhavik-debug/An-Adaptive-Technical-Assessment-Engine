@@ -27,6 +27,17 @@
   --input: oklch(0.86 0.01 250);
   --ring: oklch(0.55 0.17 262);
   --radius: 0.5rem;
+  /*
+   * Chart marks on the report (Day 28): the backend's own classification of a
+   * measured skill. Checked with the dataviz palette validator against the
+   * card surface: lightness, chroma, CVD separation (worst: protan dE 18.3)
+   * and normal-vision floor pass. --viz-gap is 2.87:1 against white, so it
+   * is never used for text, and every mark that wears it also carries a
+   * visible value, an icon and label, and a table view.
+   */
+  --viz-measured: #2559bf; /* = --primary */
+  --viz-strength: #036639; /* ~ --success */
+  --viz-gap: #c98a10;
 }
 
 @theme inline {
@@ -49,6 +60,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-viz-measured: var(--viz-measured);
+  --color-viz-strength: var(--viz-strength);
+  --color-viz-gap: var(--viz-gap);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);

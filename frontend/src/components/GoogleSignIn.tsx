@@ -15,7 +15,9 @@ type Phase =
   | { kind: 'loading'; clientId: string }
   | { kind: 'ready'; clientId: string }
   /** Google's script was blocked or failed: say so; email sign-in still works. */
-  | { kind: 'unavailable' };
+  | { kind: 'unavailable' }
+  /** The server could not be asked (unreachable or erroring): say so, offer no button. */
+  | { kind: 'unknown' };
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiError) {
@@ -89,9 +91,9 @@ export function GoogleSignIn({
         );
       })
       .catch(() => {
-        // Cannot tell; the email form is unaffected. Offer nothing rather than
-        // a button that may not work.
-        if (!controller.signal.aborted) setPhase({ kind: 'off' });
+        // Cannot tell. Offer no button that may not work, but say why it is
+        // missing rather than failing silently.
+        if (!controller.signal.aborted) setPhase({ kind: 'unknown' });
       });
     return () => controller.abort();
   }, []);
@@ -163,6 +165,15 @@ export function GoogleSignIn({
   }, [locked]);
 
   if (phase.kind === 'off' || phase.kind === 'checking') return null;
+
+  if (phase.kind === 'unknown') {
+    return (
+      <p className="text-xs text-muted-foreground">
+        We could not check whether Google sign-in is available because the server did not respond.
+        Reload the page to try again.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-3">

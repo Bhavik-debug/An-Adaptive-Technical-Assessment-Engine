@@ -264,6 +264,77 @@ async def test_statistics_unavailable_means_failed_not_completed(maker, db_engin
     assert await requeue_failed_report(maker, session_id=sid) is True
 
 
+async def test_an_unexpected_stats_error_fails_the_report_instead_of_looping(
+    maker, db_engine, monkeypatch
+):
+    """Not ReportNotReady/EventLogCorrupted: previously the exception escaped to
+    the worker loop, the row stayed `processing`, and every lease re-claimed it,
+    forever. Now it is a failed report an operator can re-queue."""
+    import app.reporting.jobs as jobs
+
+    _, sid = await reporting_session(maker, db_engine)
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(jobs, "build_stats", boom)
+    assert await run_once_report(maker, None, narrative_fn=Narrator(GOOD), policy=FAST) == (
+        ReportOutcome.FAILED
+    )
+    [row] = await _report(db_engine, sid)
+    assert (row.status, row.error) == ("failed", "internal_error")
+    # The session is not falsely completed, and the report can be retried.
+    assert (await _events(maker, sid))[-1].type != "SESSION_COMPLETED"
+    assert await requeue_failed_report(maker, session_id=sid) is True
+
+
+async def test_the_requeue_script_lists_and_requeues_a_failed_report(
+    maker, db_engine, migrated_database_url, monkeypatch
+):
+    """scripts/requeue_failed.py, run as an operator would: lists the failed
+    report by id and code only, re-queues it once, and refuses a second time."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import app.reporting.jobs as jobs
+
+    _, sid = await reporting_session(maker, db_engine)
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(jobs, "build_stats", boom)
+    await run_once_report(maker, None, narrative_fn=Narrator(GOOD), policy=FAST)
+
+    backend = Path(__file__).resolve().parents[2]
+
+    def script(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [sys.executable, "scripts/requeue_failed.py", "--database-url", migrated_database_url]
+            + list(args),
+            cwd=backend,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    listed = await asyncio.to_thread(script, "--list")
+    assert listed.returncode == 0, listed.stderr
+    assert "failed reports: 1" in listed.stdout
+    assert f"report session={sid} error=internal_error" in listed.stdout
+    assert "An answer." not in listed.stdout  # ids and codes only, never answer text
+
+    requeued = await asyncio.to_thread(script, "report", str(sid))
+    assert (requeued.returncode, requeued.stdout.strip()) == (0, "re-queued")
+    [row] = await _report(db_engine, sid)
+    assert row.status == "pending"
+
+    again = await asyncio.to_thread(script, "report", str(sid))
+    assert again.returncode == 1
+    assert "nothing to re-queue" in again.stdout
+
+
 async def test_the_ready_constraint_refuses_a_half_written_report(db_engine, maker):
     _, sid = await reporting_session(maker, db_engine)
     from sqlalchemy.exc import DBAPIError
@@ -339,6 +410,42 @@ async def test_report_route_lifecycle_and_ownership(client, db_engine, maker):
         headers=headers,
     )
     assert late.status_code == 409
+
+
+async def test_report_route_failed_is_500_with_the_typed_body(client, db_engine, maker):
+    """The report screen (Day 28) tells "failed" from any other server error by
+    the body: a failed report is a 500 whose body is the report, status
+    "failed", with no stats or narrative to show. Ownership still applies."""
+    uid, headers = await _register(client, db_engine, "failed-owner@example.com")
+    await insert_question(db_engine, "q-failed")
+    sid = await session_in_asking(maker, uid, "q-failed")
+    turn = uuid.uuid4()
+    await submit_turn(maker, None, session_id=sid, user_id=uid, turn_id=turn, answer_text="x")
+    for et, p in (
+        (EventType.ANSWER_GRADED, {"turn_id": str(turn), "score": 0.5}),
+        (EventType.REPORTING_STARTED, {"reasons": ["item_budget_reached"]}),
+    ):
+        async with maker() as db:
+            await append_event(db, None, session_id=sid, user_id=uid, event_type=et, payload=p)
+    url = f"/api/sessions/{sid}/report"
+    assert (await client.get(url, headers=headers)).status_code == 202  # job created
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE reports SET status='failed', error='stats_unavailable' "
+                "WHERE session_id=:s"
+            ),
+            {"s": sid},
+        )
+
+    failed = await client.get(url, headers=headers)
+    assert failed.status_code == 500
+    body = failed.json()
+    assert body["status"] == "failed" and body["error"] == "stats_unavailable"
+    assert body["stats"] is None and body["narrative"] is None
+
+    _, intruder = await _register(client, db_engine, "failed-intruder@example.com")
+    assert (await client.get(url, headers=intruder)).status_code == 404
 
 
 async def test_sse_announces_completion_with_the_report_id(maker, db_engine):

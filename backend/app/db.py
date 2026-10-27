@@ -27,6 +27,10 @@ def init_engine(settings: Settings) -> AsyncEngine:
             pool_size=5,
             max_overflow=5,
             echo=False,
+            # A DBAPIError's message otherwise ends in "[parameters: (...)]",
+            # i.e. answer, resume or JD text, and the log redactor only masks
+            # credential-shaped values. Statements still appear; values do not.
+            hide_parameters=True,
         )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

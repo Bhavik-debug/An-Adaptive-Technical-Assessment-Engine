@@ -92,30 +92,36 @@ async def revoke_all_refresh_tokens(redis: Redis, *, user_id: uuid.UUID) -> int:
     return len(jtis)
 
 
-async def register_login_failure(
+async def reserve_login_attempt(
     redis: Redis, *, email: str, lockout_after: int, lockout_for: dt.timedelta
-) -> int:
-    """Count a failed login. Returns the running total.
+) -> bool:
+    """Count a login attempt *before* the password is checked. False = locked out.
 
     Keyed on the submitted email rather than the IP: an attacker spraying one
     password across many accounts from one address is a different problem
     (rate limiting, Day 30), while this stops a single account being ground down.
+
+    The count and the window start are one Redis transaction, and the check is
+    on the value ``INCR`` returned, so parallel requests cannot all see "not
+    locked yet": exactly ``lockout_after`` attempts per window reach the
+    password check. (A separate read-then-increment let a burst of 40
+    concurrent guesses get 27 checked against a limit of 10.) A successful
+    login clears the count (:func:`clear_login_failures`), so only failures
+    accumulate in practice.
     """
     key = _lockout_key(email)
-    count = int(await redis.incr(key))
-    if count == 1:
-        # Start the window on the first failure, so the lockout is "10 failures
-        # within N minutes" rather than "10 failures ever".
-        await redis.expire(key, max(int(lockout_for.total_seconds()), 1))
-    if count >= lockout_after:
-        # Once tripped, hold the door shut for the full window.
-        await redis.expire(key, max(int(lockout_for.total_seconds()), 1))
-    return count
-
-
-async def is_locked_out(redis: Redis, *, email: str, lockout_after: int) -> bool:
-    raw = await redis.get(_lockout_key(email))
-    return raw is not None and int(raw) >= lockout_after
+    seconds = max(int(lockout_for.total_seconds()), 1)
+    pipe = redis.pipeline(transaction=True)
+    # Start the window on the first attempt, so the lockout is "N failures
+    # within the window" rather than "N failures ever".
+    pipe.set(key, 0, ex=seconds, nx=True)
+    pipe.incr(key)
+    _, count = await pipe.execute()
+    if int(count) == lockout_after:
+        # Tripped: hold the door shut for the full window. Only at the trip, so
+        # a real user retrying while locked out does not keep extending it.
+        await redis.expire(key, seconds)
+    return int(count) <= lockout_after
 
 
 async def clear_login_failures(redis: Redis, *, email: str) -> None:

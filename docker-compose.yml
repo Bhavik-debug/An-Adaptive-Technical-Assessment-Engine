@@ -74,6 +74,11 @@ services:
     volumes:
       # Dev convenience: edit backend/app on the host, uvicorn reloads.
       - ./backend/app:/app/app:ro
+      # The taxonomy and question bank live outside the backend build context.
+      # app/bank/paths.py resolves them to /data/question-bank inside the image
+      # (REPO_ROOT is / there); without this, /api/setup-options and the grading
+      # worker fail with "no taxonomy at /data/question-bank/taxonomy.json".
+      - ./data:/data:ro
     command:
       ["uvicorn", "app.main:create_app", "--factory",
        "--host", "0.0.0.0", "--port", "8000", "--reload"]

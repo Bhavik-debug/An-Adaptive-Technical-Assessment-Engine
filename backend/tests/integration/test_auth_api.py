@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
 from httpx import AsyncClient
 
 from app.api.auth import REFRESH_COOKIE_NAME
@@ -155,6 +158,38 @@ async def test_a_successful_login_clears_the_failure_count(client: AsyncClient):
     # Counter reset: five more failures must not trip a lockout at 10 total.
     for _ in range(5):
         assert (await login(client, password="wrong")).status_code == 401
+
+
+async def test_parallel_guesses_cannot_outrun_the_lockout(client: AsyncClient):
+    """Day 29: with the check and the count as separate round trips around the
+    slow hash, 21-27 of 40 parallel guesses reached the password check against
+    a limit of 10. The attempt is now counted first, atomically."""
+    await register(client)
+    responses = await asyncio.gather(*(login(client, password="wrong") for _ in range(40)))
+    codes = [r.status_code for r in responses]
+    assert (codes.count(401), codes.count(429)) == (10, 30)
+
+
+async def test_password_hashing_runs_off_the_event_loop(client: AsyncClient, monkeypatch):
+    """Day 29: argon2id on the loop stalled every request during a login burst."""
+    import app.api.auth as auth
+
+    threads: list[str] = []
+
+    def spy(fn):
+        def wrapped(*args):
+            threads.append(threading.current_thread().name)
+            return fn(*args)
+
+        return wrapped
+
+    monkeypatch.setattr(auth, "hash_password", spy(auth.hash_password))
+    monkeypatch.setattr(auth, "verify_password", spy(auth.verify_password))
+    assert (await register(client)).status_code == 201
+    assert (await login(client)).status_code == 200
+    assert (await login(client, email="nobody@example.com")).status_code == 401  # decoy hash
+    assert len(threads) == 3
+    assert all(name.startswith("password-hash") for name in threads), threads
 
 
 # ---------------------------------------------------------------------------

@@ -375,6 +375,23 @@ silent account linking). New backend surface: `GET /api/sessions/{id}`,
 (Day 28) is still a placeholder. Live Google sign-in and real-browser checks
 were **not** performed (details in the Day 27 entry).
 
+**2026-10-21 local sign-in fix-up** (not a plan day; Day 28 not started): local
+sign-in, password and Google alike, failed for four configuration reasons,
+which are now fixed. Real-browser (headless Edge) checks have now been run.
+Live Google sign-in still needs the owner's OAuth client. See the entry after
+Day 27.
+
+**Day 28 delivered** (local only): the report screen at
+`/interviews/:id/report` replaces the placeholder. It shows real report data
+only: per-topic and per-skill bars with their intervals, ranked gaps,
+strengths, needs-more-assessment, per-answer grades, and the labelled
+narrative. It has honest preparing, failed, not-finished and not-found states
+(`docs/report-screen.md`). **Google sign-in was verified live with the
+owner's real Google account** (201 new account, then 200 on a second sign-in).
+The cause was a commented-out `GOOGLE_CLIENT_ID`. Not built from the plan's
+Day 28 row, for lack of backend fields: an overall band, a 2-week study plan,
+grader evidence on question cards, and the live skill graph.
+
 - [ ] Public HTTPS URL, working signup, interview, report  *(on hold — owner approval required)*
 - [ ] Demo account with seeded data linked from the landing page
 - [ ] Restore-from-backup drill performed and documented in `docs/runbook.md`
@@ -4404,3 +4421,388 @@ window. That would still catch a real leak.
 
 **Not deployed, committed or pushed.** Deployment remains on hold pending the
 owner's approval. Phase 4 is unchanged (acceptance-pending).
+
+### 2026-10-21 — local sign-in fix-up (between Day 27 and Day 28)
+
+Not a plan day. Day 28 (the report screen) is **not** started and nothing
+here marks it done. Phase 4 is unchanged (acceptance-pending).
+
+**Reported:** login, "Continue with Google" in particular, did not work locally.
+
+**Root causes (all observed, none guessed):**
+
+1. **The API container crash-looped.** Its image was built 2026-08-29, before
+   `pgvector` and `google-auth` were dependencies. `docker compose logs api`:
+   `ModuleNotFoundError: No module named 'pgvector'` (and `google.auth` was
+   missing too). No request reached the app. Only `backend/app` is mounted;
+   dependencies and `migrations/` are baked into the image, so `docker compose
+   up` without `--build` keeps running the stale image indefinitely.
+2. **The dev database was at `0007`.** Migration `0008` (`users.google_sub`,
+   nullable `password_hash`) had never run, so the current `User` model could
+   not query `users` at all. That affects password login as well as Google.
+3. **The Vite proxy pointed at someone else's server.** `.env` set
+   `API_HOST_PORT` twice (8000, then 8080; the last wins), and the API was
+   published on 8080 because **port 8000 belongs to another project's
+   DynamoDB-local container**. The proxy defaulted to `localhost:8000`, so
+   `/api/*` from the SPA went to DynamoDB (`MissingAuthenticationToken`).
+   The app showed "The request was not valid."
+4. **`GOOGLE_CLIENT_ID` was not set**, so `/api/auth/providers` reports
+   Google as off and the button is (by design) not rendered. When the
+   providers call itself failed (cause 3), the component also rendered
+   nothing, so there was no hint of why.
+
+No defect was found in the Google verification, session, cookie, rotation or
+account-linking code. It was not rewritten.
+
+**Changes:**
+
+| File | Change |
+|---|---|
+| `frontend/vite.config.ts` | Without `API_PROXY_TARGET`, the proxy target is `http://localhost:<API_HOST_PORT>` read from the repo-root `.env` (only that key; 8000 if unset), so the proxy and the compose port cannot disagree |
+| `frontend/src/components/GoogleSignIn.tsx` (+ test) | If `/api/auth/providers` fails, a one-line note says Google sign-in could not be checked, instead of silently rendering nothing. Still never a look-alike button |
+| `backend/app/main.py` | Startup log line `google sign-in enabled` / `disabled (GOOGLE_CLIENT_ID is not set)`. Never logs the ID |
+| `.env.example`, `frontend/.env.example` | `API_HOST_PORT` is read by the proxy too; `API_PROXY_TARGET` commented out so a copied `.env.local` does not pin 8000; Google comment points at the right doc |
+| `docs/local-development.md` (new) | Windows start/stop/test commands, migration check and backup, a symptom → cause table for sign-in |
+| `docs/google-sign-in.md`, `docs/frontend.md`, `README.md` | Status, troubleshooting pointer, proxy default, "always `--build`" |
+| Owner's `.env` (gitignored, not in the diff) | Duplicate `API_HOST_PORT` removed (kept 8080); commented `GOOGLE_CLIENT_ID=` placeholder added. Backup of the previous file kept outside the repo |
+
+**Environment actions:** `pg_dump` of the dev `interviewer` database first
+(5 users, 60 questions, 0 sessions; 12 tables' data, verified with
+`pg_restore --list`), then `docker compose build api migrate` and `up -d`. The
+`migrate` service ran `0007 -> 0008`. Afterwards: revision `0008`, the same
+5 / 60 / 0 counts, API `healthy`, `/readyz` ready, container reaches
+`googleapis.com` certs (HTTP 200).
+
+**Evidence (all executed locally):**
+
+| Check | Result |
+|---|---|
+| Baseline before changes: backend `pytest` | 3134 run, **1 failed**: `test_live_client_disconnect_releases_the_server`, the known intermittent one (Day 27 entry). It passed alone afterwards. |
+| Baseline: frontend typecheck / lint / format / `npm test` | clean; 96/96 |
+| After: backend `pytest` (JUnit XML) | **3134 tests, 3133 passed, 1 failed** (the same intermittent test, `assert 1 == 0` on `idle in transaction` connections), 0 errors, 0 skipped. Then **5/5** passes alone. Not touched: unrelated to auth; Day 27's proposed fix still stands. |
+| After: `ruff check`, `ruff format --check`, `mypy --strict app` | clean (140 files) |
+| After: frontend typecheck, lint, format:check, `npm test`, `build`, `npm audit` | all exit 0; **97/97** tests (+1); 0 vulnerabilities |
+| API smoke through the Vite proxy (scratch script, not committed), isolated: throwaway DB `interviewer_smoke` at `0008` with the 60-item bank, Redis DB 12, API on :8011 with the offline **scripted** model, placeholder `GOOGLE_CLIENT_ID` | **47/47**: register validation, 201 and cookie flags (`HttpOnly; SameSite=Strict; Path=/api/auth`), case-insensitive duplicate 409, `/me` with no or garbage token 401, uniform 401 for wrong password vs unknown email, refresh rotation, replay 401 **and family revocation**, logout then refresh 401; Google: empty/oversized 422, malformed 401, a forged RS256 token refused with 401 **after fetching Google's real keys** (log: `Certificate for key id ... not found`), no cookie on rejection, 503 `google_not_configured` on the real (unconfigured) stack; setup validation 422s; create, start (idempotent), snapshot without internals; another user 404 on snapshot, submit, stream, report and list; >8000-char answer 422; 202, identical resend 200, changed text 409; ordered SSE events, `Last-Event-ID` reconnect replays the same ids; session to `COMPLETED` (3 items, 6 follow-ups); late answer rejected; report 200 `ready`; dashboard list shows it |
+| Real browser: installed Edge, headless, Playwright (scratch, not committed), same isolated stack | **23/23**: Google's own button iframe rendered by GIS; tab order logo → Google button → email → password → Sign in → register link; visible focus ring; empty-submit validation; password mismatch caught; register → dashboard; no token in local/session storage; refresh cookie `httpOnly`, unreadable from JS; reload keeps the session; wizard validation; create → interview; reload mid-interview restores the question; 3 question transitions over SSE; no score/θ on screen; no horizontal scroll at 375 px (login, dashboard, interview); report route shows the labelled placeholder; sign out → `/login`; `/dashboard` then redirects; password sign-in again. Console: only the expected anonymous `/refresh` 401 and GIS's `The given client ID is not found` (the placeholder ID). Screenshots reviewed (desktop and 375 px). |
+| Log scan of the smoke API (645 lines) | no `eyJ`, `Bearer`, emails, `refresh_token=`, passwords, answer text, tracebacks or ERROR lines; rejected credentials logged as `b'<credential>'` |
+| Clean-up | smoke API and both Vite servers stopped; `interviewer_smoke` dropped; Redis DB 12 flushed; owner's DB as above |
+
+**Observation, not changed:** the per-answer `score` is in the SSE
+`grade_ready` event and in `GET .../turns/{id}`, as documented in
+`docs/turn-api.md`. The UI drops it, but a candidate can see it in DevTools.
+Hiding it is an API-contract decision for the owner.
+
+**Still not done, stated plainly:**
+
+- **Live Google sign-in with a real Google account was not performed.** It
+  needs the owner's Google Cloud "Web application" OAuth client (origins
+  `http://localhost:5173` and `http://localhost`) and its client ID in `.env`.
+  Steps: `docs/google-sign-in.md` §4.
+- No screen-reader or axe run. Google's button keyboard behaviour inside its
+  iframe is Google's own; it is reachable by Tab.
+- The report screen (Day 28) remains a labelled placeholder. The dashboard's
+  skill overview shows real data from the latest ready report.
+- The intermittent stream test above.
+
+**Not deployed, committed or pushed.**
+
+### Day 28 — the report screen, and Google sign-in verified live
+
+Day 29 is **not** started. Phase 4 is unchanged (acceptance-pending): the
+report states that the grader is still being validated, and no validation gate
+is claimed.
+
+**Audit findings (before any change):**
+
+- Working tree: the previous fix-up's uncommitted changes, plus a new
+  `./data:/data:ro` mount for the `api` service in `docker-compose.yml` (and a
+  matching row in `docs/local-development.md` §6). Both were kept. The mount
+  fixes a real Docker-only failure that the fix-up's host-run smoke could not
+  see: `/api/setup-options` and the grading worker need
+  `/data/question-bank/taxonomy.json`, which is outside the image.
+- Runtime: API healthy on 8080, Postgres and Redis healthy, dev DB at `0008`
+  (now 12 users, 3 sessions, 1 ready report: the owner's own data, untouched).
+  The owner's Vite was running on :5173.
+- **Why Google was still unavailable:** the owner had pasted a well-formed
+  client ID into `.env` (73 characters, ends `.apps.googleusercontent.com`, no
+  stray spaces or quotes), but on a line that **still began with `# `**.
+  Inside the container `GOOGLE_CLIENT_ID` was unset, the API logged
+  `google sign-in disabled (GOOGLE_CLIENT_ID is not set)`, and
+  `/api/auth/providers` returned `null` (directly and through the Vite
+  proxy). So the button was hidden by design. No code defect.
+- Report: the route was the Day-26 placeholder. The backend contract
+  (`GET /api/sessions/{id}/report`, Day 25) was complete. Its route test
+  covered 409/202/404/401/200 but not the failed case (500 with the report
+  body).
+
+**Baselines:** backend `pytest` **3134/3134 passed**, 0 skipped (JUnit XML).
+Frontend typecheck, lint and format clean, **97/97**.
+
+**Google sign-in:**
+
+1. Removed the leading `# ` from the owner's `GOOGLE_CLIENT_ID` line (value
+   untouched, never printed; a copy of the previous `.env` is kept outside the
+   repo). Ran `docker compose up -d api`. Container: set; API log:
+   `google sign-in enabled`; providers: set, via the API and via :5173.
+2. Headless Edge on the owner's `http://localhost:5173/login`: `/gsi/client`,
+   `/gsi/style` and `/gsi/button` all 200, Google's button rendered, and **no
+   GSI console error**, so Google recognises the client and accepts the origin.
+3. **Live, by the owner, with a real Google account** (API log and DB, no
+   emails or tokens recorded): `POST /api/auth/google` **201** →
+   `GET /api/auth/me` 200, one new user with `google_sub` (21 digits) and no
+   password → `logout` 204 → second `POST /api/auth/google` **200** → `me`
+   200, still exactly one Google account.
+4. Not observed live: a page reload restoring a *Google* session, and the
+   409 path with a real Google account. The owner chose to defer the final
+   manual check. Both are covered by integration tests, and reload-restore by
+   the real-browser run for password sessions (same mechanism).
+
+**What was built (report screen):**
+
+| Piece | Where |
+|---|---|
+| The report screen: session header; summary with the narrative labelled model or template; topic bars with nested skill bars, always with intervals, and "Not assessed" / "Not enough evidence yet" labels; ranked areas to improve, strengths, needs more assessment; model feedback (non-empty sections only); per-answer grades; "How to read this report" with the grader-validation caveat and method notes. States: loading, preparing (polled), timed out, failed, not finished, not found, fetch error with retry, unusable payload. | `frontend/src/pages/report/ReportPage.tsx` |
+| A defensive reader of `stats`/`narrative`: malformed entries are dropped, never guessed; θ, RD, target, question ids, stop reasons and log position are not copied into the view | `frontend/src/lib/report.ts` |
+| The skill bar, extracted from the dashboard so both screens render results identically | `frontend/src/components/SkillRow.tsx`, `pages/dashboard/SkillOverview.tsx` |
+| `ApiError.body`: the parsed error body, so a failed report (500 with `status: "failed"`) is told apart from other server errors | `frontend/src/api/client.ts` |
+| Route wired; placeholder removed (`NotFoundPage` kept) | `frontend/src/App.tsx`, `pages/placeholders.tsx` |
+| Route test for the failed case: 500, typed body, no stats, owner-only | `backend/tests/integration/test_reports.py::test_report_route_failed_is_500_with_the_typed_body` |
+| Docs | `docs/report-screen.md` (new); `frontend.md`, `reporting.md`, `interview-screen.md`, `google-sign-in.md`, `local-development.md`, `README.md` |
+
+No backend application code, schema, migration, dependency or Docker image
+changed for Day 28. No rebuild or migration was needed.
+
+**Two defects found in the real browser and fixed the same day:** (1) the
+header kept saying "Finishing" after the report became ready, because the
+session details were read while it was still in `REPORTING`. They are now
+re-read once when the report turns ready (a ready report always belongs to a
+completed session). (2) The Feedback card showed "—" for empty sections; only
+non-empty ones are shown now. Tests were added for both.
+
+**Plan items not met** (Day 28 row: "overall band … per-question evidence
+cards … 2-week study plan … live skill graph"): no overall band (no field, and
+the narrative contract forbids an overall score); question cards show grade,
+topic and subtopic but **no evidence** (the report carries none, and concept
+keys are kept from candidates); no study plan beyond the model's
+`next_steps`; **no live skill graph** (the snapshot and stream deliberately
+carry no ability values). Recharts was not added. Each needs a backend or
+product decision first: `docs/report-screen.md` §3.
+
+**Evidence (all executed locally):**
+
+| Check | Result |
+|---|---|
+| Backend `pytest` after (JUnit XML) | **3135 tests, 3135 passed**, 0 failed, 0 errors, 0 skipped (+1 test) |
+| Backend `pytest tests/integration/test_reports.py` | 16/16 |
+| `ruff check`, `ruff format --check`, `mypy --strict app` | clean (140 files) |
+| Frontend `typecheck`, `lint`, `format:check`, `test`, `build`, `npm audit` | all exit 0; **110/110** tests (+13: 12 report-screen, 1 parser); 0 vulnerabilities |
+| Real browser (headless Edge, Playwright, scratch script not committed), isolated stack: throwaway DB `interviewer_smoke` at `0008` with the 60-item bank, Redis DB 12, API on :8011 with the offline **scripted** model (2 s per call), Vite on :5174 | **19/19**: register; screening interview created; the report URL before completion says "not finished" and links back; 9 answers to completion; "Preparing your report…" seen, then the report; header "Completed"; 2 topic bars with ranges plus 1 labelled skill; per-question grades; gap, strength and needs-more lists; no θ, RD or internals in the page text; reload keeps the report; keyboard reaches **Back to dashboard** and opens Method notes; no horizontal scroll at 375 px; dashboard **View report** opens it; the skill overview shows the same data; **a second account gets "Report not found"**; after sign-out the report URL redirects to `/login`; sign-in returns to the report. Console: only the anonymous `/refresh` 401 and Google's 403 for the isolated stack's placeholder client ID. Screenshots reviewed at 1280 px and 375 px. |
+| Clean-up | the :8011 API and :5174 Vite stopped; `interviewer_smoke` dropped; Redis DB 12 flushed. Only the owner's `interviewer` DB and Vite (:5173) remain. The stack is healthy, `/readyz` ready, `/data/question-bank` visible in the API container. |
+
+**Scripted-model caveat:** in the isolated run, the narrative came from the
+scripted stub, which the backend labels `narrative_source: "model"`, so the
+page said "Written by an AI model". With the real provider (the owner's
+`nvidia` stack) that label is accurate.
+
+**Still open, stated plainly:**
+
+- The owner's manual pass on their own stack: reload while signed in with
+  Google, and open their ready report. The owner deferred it.
+- The plan items above that have no backend field.
+- No screen-reader or axe run.
+
+**Not deployed, committed or pushed.**
+
+**Day 28 follow-up: a more graphical report.** Same data and states,
+redesigned presentation (`pages/report/ReportVisuals.tsx`,
+`docs/report-screen.md` §5): gradient header, stat tiles, a semicircle meter
+per topic, a skill range chart (estimate dot + interval band on one 0–100
+axis, hover tooltip, legend, table view), tinted standing panels, and a
+column chart of answer grades. Colour encodes only the backend's
+strength / gap / measured classification. The palette was validated with the
+dataviz checker, which failed the app's own amber against green for
+protanopes (ΔE 4.0); a lighter amber passes (ΔE 18.3). No chart dependency was
+added and no API, state or security behaviour changed. Evidence: frontend
+typecheck, lint, format, **111/111** tests (+1: chart classification, stat
+tiles, table view), build and `npm audit` (0) all pass. Real-browser journey
+on the isolated stack **20/20**, with screenshots reviewed at 1280 px and
+375 px (no horizontal scroll). Defects found in the screenshots and fixed:
+standing panels stretched to equal height; a wrapped status label.
+Not committed or pushed; Day 29 not started.
+
+### Day 29 — full audit, bug fixes, and pre-deployment readiness
+
+A local audit, not a deployment day. Nothing was deployed, committed or
+pushed, and Day 30 was not started. Phase 4 is unchanged (acceptance-pending).
+
+**Method.** Git state and diff inspected first: only the uncommitted Day 27–28
+work and the owner's `./data` mount, all kept. Three read-only code reviews
+ran in parallel: auth/security, interview lifecycle, deployment config. Every
+finding was then verified in code or **reproduced against a running API**
+before anything was changed. Runtime evidence came from:
+
+- the owner's real stack log (one full real-NVIDIA interview, 0 server errors);
+- the **actual Docker image** run on a throwaway DB;
+- the fixed code run on the host.
+
+All throwaway services and data were removed afterwards.
+
+**Confirmed issues fixed:**
+
+| # | Issue (how confirmed) | Root cause | Fix |
+|---|---|---|---|
+| 1 | A burst of logins stalled the whole API (**measured:** `/healthz` 3 ms → 500–685 ms during 16 concurrent logins) | argon2id (~50 ms CPU, 64 MiB) ran synchronously inside `async` handlers | `api/auth.py`: hashing and verification run on a dedicated 4-thread pool. **Mitigated, not solved:** `/healthz` now ~190–270 ms under the same burst, steady instead of erratic, and the burst finishes in half the time. The rest is CPU contention, which needs request rate limiting (Day 30). |
+| 2 | The login lockout could be bypassed by parallel guesses (**measured:** 21–27 of 40 parallel guesses checked against a limit of 10) | The lockout check (`GET`) and the count (`INCR`) were separate round trips with the slow hash between them | `token_store.reserve_login_attempt`: the attempt is counted **before** the password check, in one Redis transaction, and the decision uses the value `INCR` returned. **Measured after: exactly 10 of 40.** The window is extended only at the trip, so a locked-out user retrying does not prolong it. Existing lockout tests unchanged and passing. |
+| 3 | A permanent grading failure showed "being retried automatically…" with a spinner forever (code trace: `grading.py` emits `GRADING_FAILED` only from `_fail`, which is final) | The interview screen read `retries_exhausted: false` as "still retrying"; it means "permanent error" | `interviewModel.ts`: every `grading_failed` is final. The old test encoded an impossible event sequence (two `GRADING_FAILED` for one turn) and was corrected to the backend contract. The failure text no longer claims "several attempts" (a permanent error fails at once). |
+| 4 | A failed grade or failed report was a dead end: the documented "operator re-queues it" had no runnable path | `requeue_failed_turn` / `requeue_failed_report` existed and were tested, but nothing called them | New `backend/scripts/requeue_failed.py` (`--list`, `turn`, `report`). It prints ids and error codes only. Exercised on a throwaway DB: list, re-queue (row → `pending`, attempts 0, lease cleared), refusal for a missing report (exit 1). |
+| 5 | After a re-read, the interview screen could roll back to an older state and stick on "Reviewing…" with no answer form (code trace) | `reload()` restarts the stream at once, and a late snapshot committed without comparing seq | `snapshotIsCurrent()` in `interviewModel.ts`: a snapshot never replaces a newer view of the same session. Unit test of the exact ordering. |
+| 6 | An unexpected error while building report statistics left the report `processing` forever (code trace: the claim SQL has no attempts cap) | Only `ReportNotReady`/`EventLogCorrupted` were caught | `reporting/jobs.py`: any other exception → report `failed` / `internal_error`; the session stays `REPORTING` and can be re-queued (#4). Integration test injects the error. |
+| 7 | Answer, resume or JD text could reach logs inside a DB error's `[parameters: ...]` | Engine created without `hide_parameters`; the redactor masks only credential shapes | `db.py`: `hide_parameters=True` (plus the new script). Unit test. |
+| 8 | `APP_ENV=staging/prod` accepted the `.env.example` `SECRET_KEY` (public, so tokens could be forged) and the `stub` model | The secret check was length-only | `config.py` `_check_deployable`: staging/prod refuse the placeholder (or any "change-me" value) and `stub`. Local and CI unchanged. 7 tests. |
+
+Also corrected while documenting: a stray carriage return that my own edit put
+into a runbook command.
+
+**Checked and found correct (runtime or code):**
+- **Ownership** on every session, turn, stream, report, resume and JD route. A browser test with a second account gets "Report not found".
+- **Malformed session specs** each get a clear 422 with no internals, and another user's resume gets 404.
+- **JWT:** HS256 pinned, `typ` checked both ways.
+- **Refresh** consume is atomic.
+- **Google:** audience, single-use and no silent linking.
+- **Cookie flags.**
+- **Open-redirect guard.**
+- **Server-side 8000-character limit.**
+- **SSE:** id = seq, exact replay, and the client deduplicates.
+- **Idempotent `/start` and turn submission.**
+- **Worker** fencing and SKIP LOCKED.
+- **Owner's real stack:** a page reload restored a *Google* session (`/refresh` 200 at 15:44:08 after a Google sign-in at 15:32:53 with no sign-in in between), which closes Day 28's deferred manual check.
+
+**Evidence:**
+
+| Check | Result |
+|---|---|
+| Backend `pytest` after all fixes (JUnit XML) | **3143 tests: 3142 passed, 1 failed, 0 errors, 0 skipped** (+8 new). The failure is the known intermittent `test_live_client_disconnect_releases_the_server` (`assert 1 == 0`, Day 27 diagnosis); it then passed **5/5** alone. Not changed. |
+| Pre-change backend baseline | **Not obtained, my error:** a second test run I started dropped the shared `interviewer_test` DB under it. The last clean full run before today's changes is Day 28's 3135/3135. |
+| Targeted: auth suites 78/78; config + engine 27/27; `test_reports.py` 17/17 | pass |
+| `ruff check`, `ruff format --check`, `mypy --strict app` (140 files) | clean |
+| Frontend `typecheck`, `lint`, `format:check`, `test`, `build`, `npm audit` | all exit 0; **112/112** (+1); 0 vulnerabilities (baseline today 111/111) |
+| Real browser (headless Edge), full journey: register → setup → 9 answers → preparing → report → reload → keyboard → 375 px → dashboard → other user refused → sign-out → protected route → sign-in back to the report | **20/20 against the actual Docker image** (container path incl. `/data` mount); **20/20 against the fixed code** |
+| Burst / lockout measurements | as in the table (before vs after) |
+| Owner's stack after hot-reloading today's code | 6 clean reloads, 0 errors, `/readyz` ready, Google enabled |
+
+**Deployment blockers** (none addressed today; no deployment action taken):
+
+1. **The image has no question bank.**
+   - `data/` is outside the `./backend` build context.
+   - The image works only with the `./data:/data:ro` dev mount (verified: no `/data` in the image).
+   - `backend/scripts/` (ingest) isn't in the image either.
+2. **Only a dev compose exists.**
+   - It runs `--reload`, bind-mounts the source, and publishes Postgres and Redis ports.
+   - It uses default DB credentials and Redis has no password.
+   - There is no production compose and no Caddyfile.
+3. **`APP_ENV` defaults to `local`.**
+   - Forgetting it in production gives non-Secure cookies and public `/docs` and `/openapi.json` (`/docs` is public in staging too).
+4. **The deploy topology isn't decided.**
+   - The refresh cookie is `SameSite=Strict` and there is no CORS, so the app must be same-origin.
+   - The plan's Cloudflare Pages frontend would need a decision first.
+5. **No request rate limiting or quotas.**
+   - The LLM-backed endpoints are open to cost abuse.
+   - The login lockout is per email, so anyone who knows an email can lock that account out.
+   - Unauthenticated JSON bodies have no size cap (a 2 MB login body is parsed).
+6. **No security headers** (HSTS, nosniff, frame-ancestors, CSP); this should be done at the proxy.
+7. **PyMuPDF is AGPL-3.0 or commercial.** A licence decision is required.
+8. **No backups or restore drill**, and no `docs/runbook.md`.
+9. **CI has no frontend job, no image build and no deploy pipeline**, and gitleaks is unpinned.
+10. **The production Google OAuth client and its origins** aren't set up.
+11. **Owner approval for deployment.**
+
+**Known limitations (unchanged and stated plainly):**
+
+- **Phase 4 grader:**
+  - QWK against human labels is unmeasured.
+  - The length-bias, confidence-bias and injection gates fail on measured evidence.
+  - Reports and the UI say the grader is unvalidated.
+  - The owner's real log shows the evidence check downgrading concepts 102 times, and dropping a penalty 7 times, in one interview. This is the documented quote-verification issue.
+- **PII redaction is pattern-based and incomplete.** It is not anonymisation (`docs/ingestion.md`).
+- **Restarting the API during grading** leaves that answer "Reviewing…" for up to about 6 minutes (lease expiry, by design). With the dev `--reload`, any backend save does this.
+- **Edge case:** redaction can lengthen an answer at or near the 8000 limit containing very short emails past the grader's limit, which is a permanent failure. Re-queueing won't help.
+- **A refresh-family revocation race** has a window of a few milliseconds.
+- **Clients without Web Locks** can trip replay detection.
+- **No email verification:** a password sign-up can claim a Google user's email first. That's not a takeover, but it blocks that user from signing in with Google under that email.
+- **Real embeddings (`fastembed`) aren't in the image.**
+- **Report-screen gaps** (Day 28 §3).
+- **No screen-reader or axe run.**
+- **`DEBUG` is read by nothing.**
+
+**Verdict: partially ready.** It is locally functional and verified end to end, and today's confirmed bugs are fixed. It is **not ready** for a deployment *execution* until blockers 1–11 are addressed. It is ready for a **deployment review** of those blockers.
+
+### Day 29.1 — post-audit verification of the Day 29 changes
+
+A verification pass, not new work. Nothing was deployed, committed or pushed.
+Day 30 was not started, and no data was deleted, reset or migrated. `.env`
+was not changed, and only its `API_HOST_PORT` key was read.
+
+**Review of the uncommitted diff.** Git status and the full diff were
+inspected, including the untracked files. There was no duplicated code, no
+broken import and no leftover reference to removed code
+(`is_locked_out`, `register_login_failure`, `ReportPlaceholderPage`,
+`TopicRow`). The `core.autocrlf` warnings are noise: the working files are LF,
+like the index. Accidental defects found and corrected:
+
+1. **Mixed line endings in `backend/tests/unit/test_health.py`.** The old 136
+   lines were CRLF and the Day 29 test appended to them was LF. It is now
+   uniformly LF, and the content diff is unchanged (+15 lines).
+   `docker-compose.yml` is uniformly CRLF in the working tree and Git
+   normalizes it, so it was left alone.
+2. **That same test set the `app.db` globals to `None` and never restored
+   them.** It now uses `monkeypatch`, which puts back whatever engine was
+   there before. The assertion is unchanged.
+3. **The docstring usage of `scripts/requeue_failed.py` was bash-only**
+   (`URL=...`, `$URL`). A note now points to the PowerShell form in
+   `docs/local-development.md`. That form was run verbatim in Windows
+   PowerShell. `--help` exited 0, no command printed help and exited 2, and a
+   read-only `--list` against the dev DB printed `failed turns: 0` /
+   `failed reports: 0` and exited 0. `turn` and `report` were not run against
+   the dev DB.
+
+**Regression coverage that was missing, now added.** Day 29's "existing
+lockout tests unchanged and passing" was true, but those tests are sequential
+and cannot see the race that was fixed. Three new tests:
+
+| Fix | New test | Fails on the pre-Day-29 code? |
+|---|---|---|
+| #2 atomic lockout | `test_auth_api.py::test_parallel_guesses_cannot_outrun_the_lockout` (40 parallel wrong guesses → exactly 10×401, 30×429) | **Yes:** `(40, 0) == (10, 30)`, all 40 reached the password check |
+| #1 hashing off the loop | `test_auth_api.py::test_password_hashing_runs_off_the_event_loop` (register, login and decoy all run on `password-hash-*` threads) | **Yes:** they ran on the main thread |
+| #4 re-queue script | `test_reports.py::test_the_requeue_script_lists_and_requeues_a_failed_report` (the real CLI as a subprocess on the test DB: lists ids and codes and no answer text, re-queues to `pending`, exits 1 on a repeat) | n/a (new file) |
+
+"Fails on old code" was checked by running the new test file against
+`git archive HEAD` extracted to a temporary directory, without a worktree. The
+temporary copy was then deleted.
+
+**Suspicion checked and withdrawn.** `dummy_hash()` looked as if it hashed on
+the event loop on every unknown-email login. It is `@lru_cache`d, so it hashes
+once per process. Measured medians: unknown email 100 ms vs wrong password
+93 ms (no timing gap). No change.
+
+**Evidence:**
+
+| Check | Result |
+|---|---|
+| Backend full suite: **one** run, sequential, no other pytest process, `REQUIRE_INTEGRATION=1`, JUnit XML | **3146 tests: 3146 passed, 0 failed, 0 errors, 0 skipped**, 22 deselected (smoke/embeddings markers), exit 0, 5 min 47 s. That is Day 29's 3143 plus the 3 above. |
+| `test_live_client_disconnect_releases_the_server` | **passed** in that run (1.1 s). Day 29's single failure is consistent with the Day 27 diagnosis: the test's one-shot `pg_stat_activity` snapshot races the in-process workers' claim transactions. The assertion is scoped to `current_database()`, so the dev API container cannot affect it. It is still classed as **intermittent and pre-existing**. One green run does not prove it fixed, and it was not changed. |
+| Focused Day 29 tests (lockout, off-loop hashing, `internal_error` report, failed report route, `hide_parameters`, staging/prod config, re-queue script) and `grading_failed`-is-final and stale-snapshot tests | pass (within the full run, and before it as a targeted run) |
+| `ruff check`, `ruff format --check` (309 files), `mypy --strict app` (140 files) | clean |
+| Frontend `typecheck`, `lint`, `format:check`, `test`, `build` | all exit 0; **112/112** tests in 10 files |
+| `npm audit` | **2 moderate, new since Day 29:** `vitest` / `@vitest/mocker` ≤ 4.1.11 (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp). Dev/test-only; `npm audit --omit=dev` → 0. Not upgraded (out of scope). |
+| Local stack (Docker Desktop had been stopped; it was started and the existing containers resumed, with no `up`, rebuild or migrate) | `/healthz` 200; `/readyz` ready (postgres, redis, `nvidia` 1/1); startup log `google sign-in enabled` |
+| Vite dev server, started briefly then stopped | SPA and deep link 200. Through the proxy (which follows `API_HOST_PORT=8080`, the Day 29 change): providers 200, refresh without cookie 401, unknown-email login 401. No DB writes. |
+
+**Not re-verified:** the 20-step browser journey and the burst/lockout timing
+measurements, which are Day 29's evidence and were not repeated. The grader is
+**still not validated**: QWK against human labels is unmeasured, and the
+length-bias, confidence-bias and prompt-injection gates still fail. Deployment
+blockers 1–11 (Day 29) are unchanged.
+
+**Verdict: verification passed with known issues.** The known issues are the
+intermittent disconnect test (pre-existing, passed here), the new dev-only
+`vitest` advisories, and the unchanged grader and deployment blockers.

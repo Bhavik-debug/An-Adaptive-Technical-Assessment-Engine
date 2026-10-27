@@ -33,6 +33,13 @@ The `migrate` service runs `alembic upgrade head` and exits; the `api` service
 waits for it to succeed, so the API can never serve traffic against an
 un-migrated database.
 
+**Re-run with `--build` after every pull.** Only `backend/app` is mounted into
+the container. Dependencies and migrations are baked into the image, so a stale
+image crash-loops on a missing package and never applies new migrations. That
+is what broke local sign-in before 2026-10-21. Windows start/stop/test
+commands and a sign-in troubleshooting table:
+[`docs/local-development.md`](docs/local-development.md).
+
 Host ports are offset so a locally installed Postgres/Redis does not clash:
 Postgres on **5433**, Redis on **6380**, API on **8000**. If 8000 is already taken,
 set `API_HOST_PORT` in `.env` — the container always listens on 8000 internally.
@@ -55,15 +62,16 @@ Point `DATABASE_URL`/`REDIS_URL` at `localhost:5433` / `localhost:6380` and run
 ```bash
 cd frontend
 npm ci
-npm run dev                   # http://localhost:5173, proxies /api to localhost:8000
+npm run dev                   # http://localhost:5173, proxies /api to localhost:$API_HOST_PORT
 ```
 
-If the API is on another port, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+The proxy follows `API_HOST_PORT` from the root `.env` (default 8000). Set
+`API_PROXY_TARGET` (see `frontend/.env.example`) only if the API runs elsewhere.
 The app has to be served from the API's origin, because the refresh cookie is
 `SameSite=Strict` and the API has no CORS. The Vite proxy handles this locally.
 Sign-in (email, or Google when `GOOGLE_CLIENT_ID` is set), the dashboard, the
-three-step setup wizard and the interview screen (Day 27) work. The report
-screen (Day 28) is a placeholder. See [`docs/frontend.md`](docs/frontend.md),
+three-step setup wizard, the interview screen (Day 27) and the report screen
+(Day 28, [`docs/report-screen.md`](docs/report-screen.md)) work. See [`docs/frontend.md`](docs/frontend.md),
 [`docs/interview-screen.md`](docs/interview-screen.md) and
 [`docs/google-sign-in.md`](docs/google-sign-in.md). **Nothing is deployed:** deployment
 waits for the project owner's explicit approval.
@@ -1054,7 +1062,7 @@ and run once when the database volume is first created.
 frontend/src/         React 18 + Vite + TS + Tailwind SPA (Day 26) — docs/frontend.md
   api/                the one HTTP client, endpoint wrappers, contract types
   auth/               session restore/refresh, route guards
-  pages/              sign-in/up, dashboard, setup wizard, Day-27/28 placeholders
+  pages/              sign-in/up, dashboard, setup wizard, interview (Day 27), report (Day 28)
 backend/app/          FastAPI modular monolith
   config.py           pydantic-settings; fails fast at boot on a bad environment
   db.py / cache.py    Postgres + Redis lifecycle and probes

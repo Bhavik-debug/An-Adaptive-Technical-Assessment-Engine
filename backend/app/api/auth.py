@@ -24,6 +24,9 @@ import asyncio
 import datetime as dt
 import logging
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, TypeVar
 
 from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field
@@ -57,13 +60,26 @@ from app.token_store import (
     claim_google_token,
     clear_login_failures,
     consume_refresh_token,
-    is_locked_out,
-    register_login_failure,
     remember_refresh_token,
+    reserve_login_attempt,
     revoke_all_refresh_tokens,
 )
 
 log = logging.getLogger(__name__)
+_T = TypeVar("_T")
+
+# argon2id costs ~50 ms of CPU and 64 MiB per call. It runs off the event loop
+# (or one burst of logins stalls every request, SSE streams and answers
+# included), and on a small dedicated pool rather than the default executor:
+# 16 concurrent hashes on the default pool still starved the loop (measured,
+# /healthz 3 ms -> ~270 ms). Four slots cap CPU and memory (256 MiB); a burst
+# of logins queues behind them instead of slowing everything else.
+_PASSWORD_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="password-hash")
+
+
+async def _password_work(fn: Callable[..., _T], *args: Any) -> _T:
+    return await asyncio.get_running_loop().run_in_executor(_PASSWORD_POOL, fn, *args)
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -255,7 +271,8 @@ async def register(
     settings: AppSettings,
     redis: CacheClient,
 ) -> TokenResponse:
-    user = User(email=payload.email, password_hash=hash_password(payload.password))
+    password_hash = await _password_work(hash_password, payload.password)
+    user = User(email=payload.email, password_hash=password_hash)
     db.add(user)
     try:
         await db.commit()
@@ -281,7 +298,12 @@ async def login(
     settings: AppSettings,
     redis: CacheClient,
 ) -> TokenResponse:
-    if await is_locked_out(redis, email=payload.email, lockout_after=settings.login_max_failures):
+    if not await reserve_login_attempt(
+        redis,
+        email=payload.email,
+        lockout_after=settings.login_max_failures,
+        lockout_for=dt.timedelta(minutes=settings.login_lockout_minutes),
+    ):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
@@ -299,22 +321,19 @@ async def login(
     # `has_password` check means even the decoy's own plaintext cannot log in.
     has_password = user is not None and user.password_hash is not None
     stored_hash = user.password_hash if user is not None and user.password_hash else dummy_hash()
-    password_ok = verify_password(stored_hash, payload.password) and has_password
+    password_ok = (
+        await _password_work(verify_password, stored_hash, payload.password) and has_password
+    )
 
     if user is None or user.password_hash is None or not password_ok:
-        await register_login_failure(
-            redis,
-            email=payload.email,
-            lockout_after=settings.login_max_failures,
-            lockout_for=dt.timedelta(minutes=settings.login_lockout_minutes),
-        )
+        # Already counted by reserve_login_attempt.
         raise _invalid_credentials()
 
     # Transparently upgrade the stored hash if we have since raised the cost
     # parameters. This is the only moment we hold the plaintext, so it is the
     # only moment a rehash is possible.
     if password_needs_rehash(user.password_hash):
-        user.password_hash = hash_password(payload.password)
+        user.password_hash = await _password_work(hash_password, payload.password)
         await db.commit()
 
     await clear_login_failures(redis, email=payload.email)

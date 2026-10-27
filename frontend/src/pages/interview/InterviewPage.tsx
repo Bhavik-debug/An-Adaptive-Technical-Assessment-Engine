@@ -53,8 +53,9 @@ function ReviewNotice({ view }: { view: InterviewView }) {
   if (view.review === 'failed') {
     return (
       <Alert variant="warning" title="We could not review this answer">
-        Your answer was saved, but it could not be reviewed after several attempts, so the interview
-        is paused. Nothing is lost: it stays on your dashboard, and you can come back to it later.
+        Your answer was saved, but it could not be reviewed, so this interview cannot continue for
+        now. Nothing is lost: the interview stays on your dashboard and can be resumed once the
+        review has been retried.
       </Alert>
     );
   }

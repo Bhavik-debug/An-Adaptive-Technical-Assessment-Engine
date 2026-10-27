@@ -366,6 +366,25 @@ class Settings(DatabaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _check_deployable(self) -> Settings:
+        """Staging and prod refuse the two settings that only make sense locally.
+
+        * The ``SECRET_KEY`` published in ``.env.example`` (or any value still
+          saying "change-me"): it is public, so anyone could sign tokens.
+        * The ``stub`` provider: it answers from recordings or a scripted rule,
+          so its grades are not a model's judgement.
+        """
+        if self.app_env in ("staging", "prod"):
+            if "change-me" in self.secret_key.lower() or self.secret_key.startswith("dev-only"):
+                raise ValueError(
+                    "SECRET_KEY is the documented placeholder; generate a real one for "
+                    f"APP_ENV={self.app_env}"
+                )
+            if "stub" in self.llm_providers:
+                raise ValueError(f"LLM_PROVIDER_ORDER may not include 'stub' in {self.app_env}")
+        return self
+
+    @model_validator(mode="after")
     def _check_tracing_target(self) -> Settings:
         """An exporter that cannot possibly reach anywhere is a boot failure.
 

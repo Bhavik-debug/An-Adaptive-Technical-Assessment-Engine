@@ -64,6 +64,20 @@ describe('Continue with Google', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
+  it('says why there is no button when the server cannot be asked', async () => {
+    mockApi({
+      ...anonymous,
+      'GET /api/auth/providers': { status: 502, body: { detail: 'Bad gateway' } },
+    });
+    renderApp('/login');
+    expect(
+      await screen.findByText(/could not check whether Google sign-in is available/),
+    ).toBeInTheDocument();
+    expect(gis.loadGoogleIdentity).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('google-button')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+  });
+
   it("renders Google's own button with the server's client id", async () => {
     const google = fakeGoogle();
     mockApi({ ...anonymous, ...googleOn });

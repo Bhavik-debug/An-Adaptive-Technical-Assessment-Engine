@@ -7,8 +7,8 @@ its own.
 
 Code: `frontend/src/pages/interview/` (`InterviewPage`, `useInterview`,
 `interviewModel`, `AnswerForm`, `QuestionText`, `content`), `src/api/stream.ts`,
-`src/lib/sse.ts`. The report route `/interviews/:id/report` remains Day 28's
-labelled placeholder.
+`src/lib/sse.ts`. The report route `/interviews/:id/report` is Day 28's
+report screen ([report-screen.md](report-screen.md)).
 
 ---
 
@@ -114,10 +114,10 @@ exactly once. The server ends the stream after `session_complete`.
 | `CREATED` | "This interview has not started yet", with **Start interview** (idempotent `/start`) |
 | `PREPARING` | "Preparing your first question…" |
 | `ASKING` | The question (verbatim; line breaks and indentation kept; ``` fences as code), the answer form |
-| `GRADING` | The answered question, "Answer received", "Reviewing your answer…"; "being retried" after a transient `grading_failed`; after `retries_exhausted`, "We could not review this answer… the interview is paused", because the backend keeps the session in `GRADING` until an operator re-queues the turn |
+| `GRADING` | The answered question, "Answer received", "Reviewing your answer…"; "being retried" when a reloaded turn is `pending` with an `error_code` (a retry is scheduled); after **any** `grading_failed` (it is always final, Day 29 fix), "We could not review this answer… the interview is paused", because the backend keeps the session in `GRADING` until an operator re-queues the turn |
 | `PROBING` | "Preparing a follow-up question…" |
 | `SELECTING` | "Choosing your next question…" |
-| `REPORTING` / `COMPLETED` | "Interview complete", with **View report** (Day 28 placeholder) and **Back to dashboard** |
+| `REPORTING` / `COMPLETED` | "Interview complete", with **View report** (the Day 28 report screen) and **Back to dashboard** |
 
 Plus: a loading skeleton, "Interview not found" (404 or a malformed id), and a
 retryable load error.

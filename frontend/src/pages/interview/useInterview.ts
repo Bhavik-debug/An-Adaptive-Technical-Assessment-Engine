@@ -5,7 +5,13 @@ import { getSession, getTurn } from '@/api/sessions';
 import { followSessionStream, StreamFailure } from '@/api/stream';
 import type { StreamEvent } from '@/api/types';
 
-import { applyEvent, fromSnapshot, withTurnStatus, type InterviewView } from './interviewModel';
+import {
+  applyEvent,
+  fromSnapshot,
+  type InterviewView,
+  snapshotIsCurrent,
+  withTurnStatus,
+} from './interviewModel';
 
 export type LoadState =
   | { kind: 'loading' }
@@ -74,7 +80,7 @@ export function useInterview(sessionId: string) {
           }
         }
         if (controller.signal.aborted) return;
-        commit(snapshot);
+        if (snapshotIsCurrent(viewRef.current, snapshot)) commit(snapshot);
         setLoad({ kind: 'ready' });
       } catch (error) {
         if (controller.signal.aborted) return;

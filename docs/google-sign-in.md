@@ -12,6 +12,38 @@ against locally generated keys. **Live sign-in against Google has not been
 verified**: no Google OAuth client was available for this work. See
 "Verifying with a real Google client" below.
 
+**Day 28 (2026-10-21): verified live with a real Google account.** The
+cause of the remaining failure was configuration again. `GOOGLE_CLIENT_ID` was
+in the root `.env` but **commented out** (`# GOOGLE_CLIENT_ID=…`), so the
+container never received it, `/api/auth/providers` returned `null` and the
+button was hidden by design. The `#` was removed and the API re-created
+(`docker compose up -d api`). Evidence, from the API's own log and the
+database, with no emails or tokens recorded:
+
+| Step | Evidence |
+|---|---|
+| Google's script accepts the client and the origin | headless Edge on `http://localhost:5173/login`: `/gsi/client`, `/gsi/style`, `/gsi/button` all 200, no GSI console error (a wrong ID gives 403 + "client ID is not found") |
+| First sign-in with the owner's Google account | `POST /api/auth/google` **201**, then `GET /api/auth/me` 200; one new user with `google_sub` set (21 digits) and **no password** |
+| Sign out | `POST /api/auth/logout` 204 |
+| Second sign-in, same account | `POST /api/auth/google` **200** (existing account), `me` 200; still exactly one Google account |
+
+Not yet observed live for a Google session: a page reload restoring it
+(`/refresh` → 200). The mechanism is the same as for password sessions,
+which the real-browser run verified. The `409 account_exists` path was not
+exercised with a real Google account. It is covered by integration tests.
+
+**2026-10-21, local fix-up.** "Continue with Google" (and every other sign-in)
+failed locally for configuration reasons, not code defects: the API image was
+stale and crash-looping, the dev database was one migration behind (no
+`users.google_sub`), the Vite proxy pointed at a port owned by another
+container, and `GOOGLE_CLIENT_ID` was unset. Details and fixes are in
+`PROGRESS.md` ("Local sign-in fix-up"), and the symptom → cause table is in
+[local-development.md](local-development.md) §6. Since then, in a real
+(headless Edge) browser, GIS loads, renders Google's button and initialises
+with the server's client ID. The API fetches Google's real signing keys
+(a forged RS256 token is refused with 401, not 503). Live sign-in with a real
+Google account **still needs a real OAuth client** and has not been done.
+
 ---
 
 ## 1. The flow
@@ -106,7 +138,7 @@ Day-30 item, as for every other route.
 
 | Variable | Where | Value |
 |---|---|---|
-| `GOOGLE_CLIENT_ID` | backend (`.env` / environment) | The OAuth **client ID** of a Google Cloud "Web application" client, e.g. `1234-abc.apps.googleusercontent.com`. Unset or empty = Google sign-in off. A value that does not end in `.apps.googleusercontent.com` refuses to boot. |
+| `GOOGLE_CLIENT_ID` | backend (`.env` / environment) | The OAuth **client ID** of a Google Cloud "Web application" client, e.g. `1234-abc.apps.googleusercontent.com`. Unset or empty = Google sign-in off (the API logs `google sign-in disabled (GOOGLE_CLIENT_ID is not set)` at startup). A value that does not end in `.apps.googleusercontent.com` refuses to boot. After changing it: `docker compose up -d` (re-creates the API with the new environment). |
 
 There is deliberately **no** frontend variable: the SPA asks the backend
 (`/api/auth/providers`), so the two can never disagree, and no `VITE_*`
@@ -148,13 +180,17 @@ With `GOOGLE_CLIENT_ID` set and the stack running (README, frontend §2):
    check that the password account still signs in.
 6. In the console, a GIS warning such as "origin is not allowed" means step 4's
    origin list does not match the address in the browser bar exactly.
+7. `[GSI_LOGGER]: The given client ID is not found` means the ID is wrong.
+   Other symptoms: [local-development.md](local-development.md) §6.
 
 ## 5. Frontend
 
 `frontend/src/components/GoogleSignIn.tsx` and `src/lib/googleIdentity.ts`.
 
 * Rendered **only** when the server reports a client id. Otherwise nothing is
-  shown, never a look-alike button.
+  shown, never a look-alike button. If the server cannot be asked at all
+  (`/api/auth/providers` fails), a one-line note says so instead of failing
+  silently (2026-10-21).
 * Google's script is loaded on demand from `accounts.google.com/gsi/client`.
   If it is blocked, fails, or takes longer than 10 s, a one-line note replaces
   it and the email form works as before.

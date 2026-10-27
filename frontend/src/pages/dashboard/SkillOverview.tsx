@@ -1,57 +1,15 @@
 import { BarChart3 } from 'lucide-react';
 
 import { getReport } from '@/api/sessions';
-import type { ReportTopic, SessionSummary } from '@/api/types';
+import type { SessionSummary } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
+import { SkillRow } from '@/components/SkillRow';
 import { Alert } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useApiData } from '@/hooks/useApiData';
 import { formatDateTime, keyLabel } from '@/lib/format';
 import { latestReportedSession } from '@/lib/session';
-
-function TopicRow({ topic, name }: { topic: ReportTopic; name: string }) {
-  const observed = topic.observed;
-  if (!observed || observed.insufficient_evidence) {
-    return (
-      <li className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-        <span className="text-sm font-medium">{name}</span>
-        <Badge variant="neutral">{observed ? 'Not enough evidence yet' : 'Not assessed'}</Badge>
-      </li>
-    );
-  }
-  const [low, high] = observed.interval;
-  return (
-    <li className="space-y-1.5 py-2.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium">{name}</span>
-        <span className="text-sm tabular-nums">
-          {observed.display}
-          <span className="text-muted-foreground"> / 100</span>
-        </span>
-      </div>
-      <div
-        className="relative h-2 rounded-full bg-muted"
-        role="img"
-        aria-label={`${name}: ${observed.display} out of 100, likely range ${low} to ${high}`}
-      >
-        <div
-          className="absolute inset-y-0 rounded-full bg-primary/25"
-          style={{ left: `${low}%`, width: `${Math.max(high - low, 1)}%` }}
-        />
-        <div
-          className="absolute inset-y-0 w-1 -translate-x-1/2 rounded-full bg-primary"
-          style={{ left: `${observed.display}%` }}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Likely range {low}–{high} · {topic.questions_asked} question
-        {topic.questions_asked === 1 ? '' : 's'}
-      </p>
-    </li>
-  );
-}
 
 function ReportedSkills({
   session,
@@ -94,10 +52,11 @@ function ReportedSkills({
       </p>
       <ul className="divide-y">
         {topics.map((topic) => (
-          <TopicRow
+          <SkillRow
             key={topic.topic_key}
-            topic={topic}
             name={keyLabel(topic.topic_key, topicNames)}
+            observed={topic.observed}
+            detail={`${topic.questions_asked} question${topic.questions_asked === 1 ? '' : 's'}`}
           />
         ))}
       </ul>

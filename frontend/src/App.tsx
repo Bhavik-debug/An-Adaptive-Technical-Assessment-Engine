@@ -6,8 +6,9 @@ import { AppLayout } from '@/components/AppLayout';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { InterviewPage } from '@/pages/interview/InterviewPage';
-import { NotFoundPage, ReportPlaceholderPage } from '@/pages/placeholders';
+import { NotFoundPage } from '@/pages/placeholders';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { ReportPage } from '@/pages/report/ReportPage';
 import { SetupWizardPage } from '@/pages/setup/SetupWizardPage';
 
 export function AppRoutes() {
@@ -23,7 +24,7 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/interviews/new" element={<SetupWizardPage />} />
           <Route path="/interviews/:sessionId" element={<InterviewPage />} />
-          <Route path="/interviews/:sessionId/report" element={<ReportPlaceholderPage />} />
+          <Route path="/interviews/:sessionId/report" element={<ReportPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />

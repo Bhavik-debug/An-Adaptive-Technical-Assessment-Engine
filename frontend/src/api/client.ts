@@ -39,17 +39,24 @@ export class ApiError extends Error {
   readonly code: string | undefined;
   /** Validation messages keyed by the offending body field (FastAPI 422 lists). */
   readonly fieldErrors: Record<string, string>;
+  /**
+   * The parsed JSON body, when there was one. Some error statuses carry a
+   * typed body rather than a `detail` (e.g. a failed report is a 500 whose
+   * body is `ReportOut` with `status: "failed"`).
+   */
+  readonly body: unknown;
 
   constructor(
     status: number,
     message: string,
-    options: { code?: string; fieldErrors?: Record<string, string> } = {},
+    options: { code?: string; fieldErrors?: Record<string, string>; body?: unknown } = {},
   ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = options.code;
     this.fieldErrors = options.fieldErrors ?? {};
+    this.body = options.body ?? null;
   }
 
   get isNetworkError(): boolean {
@@ -96,7 +103,7 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
   const detail = (body as { detail?: unknown } | null)?.detail;
 
   if (typeof detail === 'string' && detail.trim()) {
-    return new ApiError(res.status, detail);
+    return new ApiError(res.status, detail, { body });
   }
   if (Array.isArray(detail)) {
     const fieldErrors: Record<string, string> = {};
@@ -109,15 +116,17 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
     }
     return new ApiError(res.status, messages.length ? messages.join('; ') : fallback, {
       fieldErrors,
+      body,
     });
   }
   if (detail && typeof detail === 'object') {
     const { code, message } = detail as { code?: unknown; message?: unknown };
     return new ApiError(res.status, typeof message === 'string' ? message : fallback, {
       code: typeof code === 'string' ? code : undefined,
+      body,
     });
   }
-  return new ApiError(res.status, fallback);
+  return new ApiError(res.status, fallback, { body });
 }
 
 function networkError(): ApiError {

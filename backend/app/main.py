@@ -95,6 +95,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     log.info("%s started in %s mode", settings.app_name, settings.app_env)
+    # The login page hides "Continue with Google" when this is off; say so here
+    # so a missing GOOGLE_CLIENT_ID is visible in the logs, not only by absence.
+    log.info(
+        "google sign-in %s",
+        "enabled" if settings.google_client_id else "disabled (GOOGLE_CLIENT_ID is not set)",
+    )
     try:
         yield
     finally:

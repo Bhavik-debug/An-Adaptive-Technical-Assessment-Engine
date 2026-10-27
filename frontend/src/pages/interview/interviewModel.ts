@@ -60,6 +60,17 @@ export function withTurnStatus(view: InterviewView, turn: TurnStatus): Interview
   return { ...view, review: turn.error_code ? 'retrying' : 'pending' };
 }
 
+/**
+ * Whether a freshly read snapshot may replace the current view. A re-read can
+ * race the stream, which restarts at once from the current seq: if events
+ * newer than the snapshot were applied meanwhile, the older snapshot must not
+ * roll them back (it could hide the next question while the server waits for
+ * an answer, with no further event to recover from).
+ */
+export function snapshotIsCurrent(current: InterviewView | null, snapshot: InterviewView): boolean {
+  return !current || current.sessionId !== snapshot.sessionId || snapshot.seq >= current.seq;
+}
+
 export interface Applied {
   view: InterviewView;
   /** True when the event skipped a seq: re-read the snapshot. */
@@ -78,10 +89,11 @@ export function applyEvent(view: InterviewView, event: StreamEvent): Applied {
       // The score is not shown. The engine now decides what comes next.
       return { view: { ...next, review: 'pending' }, gap: false };
     case 'grading_failed':
-      return {
-        view: { ...next, review: event.retries_exhausted ? 'failed' : 'retrying' },
-        gap: false,
-      };
+      // Always final. The backend emits GRADING_FAILED only when it gives up
+      // on the turn (interview/grading.py `_fail`): `retries_exhausted` says
+      // why (transient errors used up vs a permanent error), not that more
+      // attempts follow. Retries themselves emit nothing.
+      return { view: { ...next, review: 'failed' }, gap: false };
     case 'next_question':
       return {
         view: {

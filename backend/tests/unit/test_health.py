@@ -134,3 +134,17 @@ async def test_readyz_probes_dependencies_concurrently(client, monkeypatch):
     assert response.status_code == 200
     # Serial execution would take ~0.60s; concurrent takes ~0.30s.
     assert elapsed < 0.50, f"probes appear to run serially ({elapsed:.2f}s)"
+
+
+def test_db_engine_hides_bound_parameters(env, monkeypatch):
+    """Errors must not carry answer/resume text into logs via "[parameters: ...]"."""
+    import app.db as db
+    from app.config import get_settings
+
+    env()
+    # monkeypatch restores whatever engine was there before, so this test
+    # neither builds on nor leaks one into its neighbours.
+    monkeypatch.setattr(db, "_engine", None)
+    monkeypatch.setattr(db, "_sessionmaker", None)
+    engine = db.init_engine(get_settings())
+    assert engine.sync_engine.hide_parameters is True
